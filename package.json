@@ -1,0 +1,25 @@
+{
+  "name": "thrd-lang",
+  "displayName": "THRD Lang",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.78.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "thrd",
+      "aliases": ["Typed Human-Readable Data", "thrd"],
+      "extensions": [".thrd",".thrdlib",".thrdspec"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "thrd",
+      "scopeName": "source.thrd",
+      "path": "./syntaxes/thrd.tmLanguage.json"
+    }]
+  }
+}

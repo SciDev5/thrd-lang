@@ -1,0 +1,192 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Typestrong Human-Readable Data",
+	"scopeName": "source.thrd",
+	"patterns": [
+		{
+			"include": "#expression"
+		},
+		{
+			"include": "#comments"
+		}
+	],
+	"repository": {
+		"expression": {
+			"name": "meta.structure.expression.thrd",
+			"begin": "(\\w+):",
+			"end": ",",
+			"beginCaptures": {
+				"1": {
+					"name": "variable.name.thrd"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#value"
+				}
+			]
+		},
+		"value": {
+			"name": "meta.structure.expressionValue.thrd",
+			"patterns": [
+				{
+					"include": "#primitive"
+				},
+				{
+					"include": "#comments"
+				},
+				{
+					"include": "#blocks"
+				},
+				{
+					"match": "(\\w)(.*?)",
+					"captures": {
+						"1": {
+							"name": "entity.name.class.enum.thrd"
+						},
+						"2": {
+							"patterns": [
+								{
+									"include": "#blocks"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		"blocks": {
+			"patterns": [
+				{
+					"begin": "\\{",
+					"end": "\\}",
+					"patterns": [
+						{
+							"include": "#expression"
+						}
+					]
+				},
+				{
+					"begin": "\\[",
+					"end": "\\]",
+					"patterns": [
+						{
+							"include": "#array-element"
+						}
+					]
+				},
+				{
+					"begin": "\\(",
+					"end": "\\)",
+					"patterns": [
+						{
+							"include": "#array-element"
+						}
+					]
+				}
+			]
+		},
+		"array-element": {
+			"patterns": [
+				{
+					"begin": ":",
+					"end": ",",
+					"include": "#value"
+				},
+				{
+					"include": "#comments"
+				}
+			]
+		},
+		"primitive": {
+			"patterns": [
+				{
+					"include": "#boolean"
+				},
+				{
+					"include": "#integer"
+				},
+				{
+					"include": "#float"
+				},
+				{
+					"include": "#string"
+				}
+			]
+		},
+		"boolean": {
+			"name": "constant.language",
+			"comment": "booleans",
+			"match": "^true|false"
+		},
+		"integer": {
+			"name": "constant.numeric.integer",
+			"match": "-?\\d+"
+		},
+		"float": {
+			"name": "constant.numeric.float",
+			"match": "-?\\d*\\.\\d+(?:[eE][+-]\\d+)?"
+		},
+		"string": {
+			"patterns": [
+				{
+					"include": "#string-doublequote"
+				},
+				{
+					"include": "#string-multiline"
+				}
+			]
+		},
+		"string-doublequote": {
+			"name": "string.inline.thrd",
+			"begin": "\"",
+			"end": "(\")|((?:[^\\\\\\n])$)",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.string.beginning.thrd"
+				}
+			},
+			"endCaptures": {
+				"1": {
+					"name": "punctuation.string.end.thrd"
+				},
+				"2": {
+					"name": "invalid.illegal.newline.thrd"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#escapes"
+				}
+			]
+		},
+		"string-multiline": {
+			"name": "string.multiline.thrd",
+			"begin": "`",
+			"end": "`",
+			"patterns": [
+				{
+					"include": "#escapes"
+				}
+			]
+		},
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment.line.double-slash",
+					"begin": "//",
+					"end": "\\n"
+				},
+				{
+					"name": "comment.block",
+					"begin": "/\\*",
+					"end": "\\*/"
+				}
+			]
+		},
+		"escapes": {
+			"name": "constant.character.escape",
+			"match": "\\\\."
+		}
+	}
+}
