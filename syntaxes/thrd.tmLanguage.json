@@ -37,28 +37,18 @@
 				},
 				{
 					"include": "#blocks"
-				},
-				{
-					"match": "(\\w)(.*?)",
-					"captures": {
-						"1": {
-							"name": "entity.name.class.enum.thrd"
-						},
-						"2": {
-							"patterns": [
-								{
-									"include": "#blocks"
-								}
-							]
-						}
-					}
 				}
 			]
 		},
 		"blocks": {
 			"patterns": [
 				{
-					"begin": "\\{",
+					"begin": "(\\w+)?\\s*\\{",
+					"beginCaptures": {
+						"1": {
+							"name": "entity.name.class.enum.thrd"
+						}
+					},
 					"end": "\\}",
 					"patterns": [
 						{
@@ -67,7 +57,12 @@
 					]
 				},
 				{
-					"begin": "\\[",
+					"begin": "(\\w+)?\\s*\\[",
+					"beginCaptures": {
+						"1": {
+							"name": "entity.name.class.enum.thrd"
+						}
+					},
 					"end": "\\]",
 					"patterns": [
 						{
@@ -76,7 +71,12 @@
 					]
 				},
 				{
-					"begin": "\\(",
+					"begin": "(\\w+)?\\s*\\(",
+					"beginCaptures": {
+						"1": {
+							"name": "entity.name.class.enum.thrd"
+						}
+					},
 					"end": "\\)",
 					"patterns": [
 						{
@@ -116,8 +116,7 @@
 		},
 		"boolean": {
 			"name": "constant.language",
-			"comment": "booleans",
-			"match": "^true|false"
+			"match": "true|false"
 		},
 		"integer": {
 			"name": "constant.numeric.integer",
