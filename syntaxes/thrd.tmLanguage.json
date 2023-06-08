@@ -2,7 +2,7 @@
 	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
 	"name": "Typestrong Human-Readable Data",
 	"scopeName": "source.thrd",
-	"patterns": [
+	"patterns_": [
 		{
 			"include": "#expression"
 		},
@@ -10,14 +10,27 @@
 			"include": "#comments"
 		}
 	],
+	"patterns": [
+		{
+			"include": "#value"
+		}
+	],
 	"repository": {
 		"expression": {
-			"name": "meta.structure.expression.thrd",
-			"begin": "(\\w+):",
+			"name": "meta.expression.thrd",
+			"begin": "(\\w+)\\s*(:)",
 			"end": ",",
 			"beginCaptures": {
 				"1": {
 					"name": "variable.name.thrd"
+				},
+				"2": {
+					"name": "punctuation.separator.keyValue.thrd"
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.separator.list.thrd"
 				}
 			},
 			"patterns": [
@@ -27,7 +40,6 @@
 			]
 		},
 		"value": {
-			"name": "meta.structure.expressionValue.thrd",
 			"patterns": [
 				{
 					"include": "#primitive"
@@ -43,13 +55,22 @@
 		"blocks": {
 			"patterns": [
 				{
-					"begin": "(\\w+)?\\s*\\{",
+					"name": "meta.block.dict.thrd",
+					"begin": "(\\w+)?\\s*(\\{)",
 					"beginCaptures": {
 						"1": {
-							"name": "entity.name.class.enum.thrd"
+							"name": "support.class.enum.reference.thrd"
+						},
+						"2": {
+							"name": "punctuation.block.begin.dict.thrd"
 						}
 					},
 					"end": "\\}",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.block.end.dict.thrd"
+						}
+					},
 					"patterns": [
 						{
 							"include": "#expression"
@@ -57,13 +78,22 @@
 					]
 				},
 				{
-					"begin": "(\\w+)?\\s*\\[",
+					"name": "meta.block.arr.thrd",
+					"begin": "(\\w+)?\\s*(\\[)",
 					"beginCaptures": {
 						"1": {
-							"name": "entity.name.class.enum.thrd"
+							"name": "support.class.enum.reference.thrd"
+						},
+						"2": {
+							"name": "punctuation.block.begin.arr.thrd"
 						}
 					},
 					"end": "\\]",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.block.end.arr.thrd"
+						}
+					},
 					"patterns": [
 						{
 							"include": "#array-element"
@@ -71,13 +101,22 @@
 					]
 				},
 				{
-					"begin": "(\\w+)?\\s*\\(",
+					"name": "meta.block.tuple.thrd",
+					"begin": "(\\w+)?\\s*(\\()",
 					"beginCaptures": {
 						"1": {
-							"name": "entity.name.class.enum.thrd"
+							"name": "support.class.enum.reference.thrd"
+						},
+						"2": {
+							"name": "punctuation.block.begin.tuple.thrd"
 						}
 					},
 					"end": "\\)",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.block.end.tuple.thrd"
+						}
+					},
 					"patterns": [
 						{
 							"include": "#array-element"
@@ -89,12 +128,15 @@
 		"array-element": {
 			"patterns": [
 				{
-					"begin": ":",
-					"end": ",",
-					"include": "#value"
+					"match": ",",
+					"captures": {
+						"0": {
+							"name": "punctuation.separator.list.thrd"
+						}
+					}
 				},
 				{
-					"include": "#comments"
+					"include": "#value"
 				}
 			]
 		},
@@ -115,15 +157,15 @@
 			]
 		},
 		"boolean": {
-			"name": "constant.language",
+			"name": "constant.language.boolean.thrd",
 			"match": "true|false"
 		},
 		"integer": {
-			"name": "constant.numeric.integer",
+			"name": "constant.numeric.integer.thrd",
 			"match": "-?\\d+"
 		},
 		"float": {
-			"name": "constant.numeric.float",
+			"name": "constant.numeric.float.thrd",
 			"match": "-?\\d*\\.\\d+(?:[eE][+-]\\d+)?"
 		},
 		"string": {
@@ -142,7 +184,7 @@
 			"end": "(\")|((?:[^\\\\\\n])$)",
 			"beginCaptures": {
 				"0": {
-					"name": "punctuation.string.beginning.thrd"
+					"name": "punctuation.string.begin.thrd"
 				}
 			},
 			"endCaptures": {
@@ -155,36 +197,46 @@
 			},
 			"patterns": [
 				{
-					"include": "#escapes"
+					"include": "#escape-string"
 				}
 			]
 		},
 		"string-multiline": {
 			"name": "string.multiline.thrd",
 			"begin": "`",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.string.begin.thrd"
+				}
+			},
 			"end": "`",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.string.end.thrd"
+				}
+			},
 			"patterns": [
 				{
-					"include": "#escapes"
+					"include": "#escape-string"
 				}
 			]
 		},
 		"comments": {
 			"patterns": [
 				{
-					"name": "comment.line.double-slash",
+					"name": "comment.line.double-slash.thrd",
 					"begin": "//",
 					"end": "\\n"
 				},
 				{
-					"name": "comment.block",
+					"name": "comment.block.thrd",
 					"begin": "/\\*",
 					"end": "\\*/"
 				}
 			]
 		},
-		"escapes": {
-			"name": "constant.character.escape",
+		"escape-string": {
+			"name": "constant.character.escape.string.thrd",
 			"match": "\\\\."
 		}
 	}

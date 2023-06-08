@@ -1,0 +1,9 @@
+punctuation.
+	block.[begin|end].[dict|arr|tuple]
+	separator.[keyValue|list]
+	string.[begin|end]
+		
+meta.
+	block.[dict|arr|tuple]
+	expression
+	expression.value.[block|primitive]
