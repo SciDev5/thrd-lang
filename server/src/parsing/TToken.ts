@@ -171,6 +171,9 @@ export class TToken {
       )
     } catch (err) {
       if (err instanceof StringSwitcherError) {
+        if (lines[line].trim().length === 0) {
+          return new TToken(lines, line, rawToken, { type: TokenType.Ignored })
+        }
         console.error(err)
         return new TToken(
           lines,
@@ -199,6 +202,7 @@ export class TToken {
       }
       outputTokens.push(TToken.newline(lines, line))
     }
+    console.log(outputTokens)
 
     return outputTokens
   }

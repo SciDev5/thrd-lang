@@ -2,7 +2,7 @@ import { DiagnosticSeverity, TextDocuments, type Connection, type Diagnostic } f
 import { TextDocument } from 'vscode-languageserver-textdocument'
 import { capabilities } from './capabilities'
 import { TToken } from './parsing/TToken'
-import { chunkify } from './parsing/parse'
+import { TChunkType, chunkify, parseChunkTopLevel } from './parsing/parse'
 import { globalSettings, type THRDServerSettings } from './settings'
 import { combineRanges } from './util/range'
 
@@ -100,31 +100,52 @@ export class THRDDocument {
     const lexedDoc = await this.lexedDoc
     console.log('VALIDATING... TOKEN COUNT:', lexedDoc.tokens.length)
 
-    // TODO : DOCUMENT PARSER
+    // TODO TYPE CHECKING
 
     const diagnostics: Diagnostic[] = [
-      {
-        message: 'linter under construction',
-        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-        severity: DiagnosticSeverity.Warning,
-      },
+      // {
+      //   message: 'linter under construction',
+      //   range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      //   severity: DiagnosticSeverity.Warning,
+      // },
     ]
 
-    const { allChunks, nLeft } = chunkify(lexedDoc.tokens, false)
-    for (const chunk of allChunks) {
+    const chunkified = chunkify(lexedDoc.tokens, false)
+    const chunks = chunkified.chunks.filter(v => [TChunkType.Block, TChunkType.Value].includes(v.type))
+    // for (const chunk of chunkified.allChunks) {
+    //   diagnostics.push({
+    //     message: JSON.stringify(chunk, null, 2),
+    //     severity: DiagnosticSeverity.Hint,
+    //     range: chunk.range,
+    //   })
+    // }
+    diagnostics.push(...chunkified.syntaxDiagnostics.map(v => v.diagnostic))
+    const canContinue = chunkified.syntaxDiagnostics.every(v => v.errorTolerable)
+
+    if (!canContinue) return diagnostics
+
+    if (chunks.length === 0) {
       diagnostics.push({
-        message: JSON.stringify(chunk, null, 2),
-        severity: DiagnosticSeverity.Warning,
-        range: chunk.range,
+        message: 'Data expected.',
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      })
+      return diagnostics
+    }
+    if (chunks.length > 1) {
+      diagnostics.push({
+        message: 'End of file expected.',
+        range: combineRanges(chunks[1].range, ...chunks.slice(2).map(v => v.range)),
       })
     }
-    if (nLeft > 0) {
-      diagnostics.push({
-        message: 'unexpected end of input',
-        severity: DiagnosticSeverity.Error,
-        range: combineRanges(lexedDoc.tokens[lexedDoc.tokens.length - nLeft].range, lexedDoc.tokens[lexedDoc.tokens.length - 1].range),
-      })
-    }
+
+    const { data, parseDiagnostics } = parseChunkTopLevel(chunks[0])
+    diagnostics.push(...parseDiagnostics.map(v => v.diagnostic))
+
+    diagnostics.push({
+      message: JSON.stringify(data),
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      severity: DiagnosticSeverity.Information,
+    })
 
     return diagnostics
   }

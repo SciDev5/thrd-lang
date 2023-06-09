@@ -1,6 +1,6 @@
 import { type PrimitiveValueType } from './parsing/TToken'
 
-enum THRDValueType {
+export enum THRDValueType {
   String,
   Boolean,
   Int,

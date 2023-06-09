@@ -4,7 +4,13 @@
 	"scopeName": "source.thrd",
 	"patterns": [
 		{
-			"include": "#expression"
+			"include": "#primitive"
+		},
+		{
+			"include": "#blocks"
+		},
+		{
+			"include": "#non-coding"
 		}
 	],
 	"repository": {
@@ -47,12 +53,15 @@
 			"patterns": [
 				{
 					"name": "meta.block.dict.thrd",
-					"begin": "(\\w+)?\\s*(\\{)",
+					"begin": "(\\w+)?(\\s*)(\\{)",
 					"beginCaptures": {
 						"1": {
 							"name": "support.class.enum.name.thrd"
 						},
 						"2": {
+							"name": "whitespace.thrd"
+						},
+						"3": {
 							"name": "punctuation.block.begin.dict.thrd"
 						}
 					},
@@ -70,12 +79,15 @@
 				},
 				{
 					"name": "meta.block.arr.thrd",
-					"begin": "(\\w+)?\\s*(\\[)",
+					"begin": "(\\w+)?(\\s*)(\\[)",
 					"beginCaptures": {
 						"1": {
 							"name": "support.class.enum.name.thrd"
 						},
 						"2": {
+							"name": "whitespace.thrd"
+						},
+						"3": {
 							"name": "punctuation.block.begin.arr.thrd"
 						}
 					},
@@ -93,12 +105,15 @@
 				},
 				{
 					"name": "meta.block.tuple.thrd",
-					"begin": "(\\w+)?\\s*(\\()",
+					"begin": "(\\w+)?(\\s*)(\\()",
 					"beginCaptures": {
 						"1": {
 							"name": "support.class.enum.name.thrd"
 						},
 						"2": {
+							"name": "whitespace.thrd"
+						},
+						"3": {
 							"name": "punctuation.block.begin.tuple.thrd"
 						}
 					},
@@ -123,10 +138,10 @@
 					"include": "#boolean"
 				},
 				{
-					"include": "#integer"
+					"include": "#float"
 				},
 				{
-					"include": "#float"
+					"include": "#integer"
 				},
 				{
 					"include": "#string"
