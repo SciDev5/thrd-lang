@@ -1,6 +1,6 @@
 import { type Connection } from 'vscode-languageserver'
+import { TDocument } from './TDocument'
 import { capabilities } from './capabilities'
-import { THRDDocument } from './THRDDocument'
 import { THROW } from './util/THROW'
 
 export interface THRDServerSettings {
@@ -16,12 +16,12 @@ let globalSettings_: THRDServerSettings = defaultSettings
 export function bindSettings (connection: Connection): void {
   connection.onDidChangeConfiguration(change => {
     if (capabilities.configuration) {
-      THRDDocument.refreshSettings()
+      TDocument.refreshSettings()
     } else {
       globalSettings_ = (change.settings.languageServerExample ?? defaultSettings) as THRDServerSettings
     }
 
-    Promise.all(THRDDocument.all().map(async v => {
+    Promise.all(TDocument.all().map(async v => {
       await v.validateAndSend()
     })).catch(THROW)
   })

@@ -1,21 +1,21 @@
 import {
-  type CompletionParams,
-  type InitializeParams,
+  CompletionItemKind,
   createConnection,
-  type CompletionItem,
-  type InitializeResult,
-  TextDocumentSyncKind,
   DidChangeConfigurationNotification,
   MarkupKind,
-  CompletionItemKind,
-  TextEdit,
   PositionEncodingKind,
   ProposedFeatures,
+  TextDocumentSyncKind,
+  TextEdit,
+  type CompletionItem,
+  type CompletionParams,
+  type InitializeParams,
+  type InitializeResult,
 } from 'vscode-languageserver/node'
 
 import { capabilities, computeCapabilities } from './capabilities'
 import { bindSettings } from './settings'
-import { bindDocuments } from './THRDDocument'
+import { bindDocuments } from './TDocument'
 
 const connection = createConnection(ProposedFeatures.all)
 

@@ -1,9 +1,9 @@
 import { type Range } from 'vscode-languageserver'
 import * as vsctm from 'vscode-textmate'
 import { type IToken } from 'vscode-textmate'
-import { type Lines } from '../THRDDocument'
-import { grammarPromise } from '../grammar'
+import { type Lines } from '../TDocument'
 import { StringSwitcher, StringSwitcherError } from '../util/StringSwitcher'
+import { grammarPromise } from './grammar'
 
 export enum Side {
   Begin,

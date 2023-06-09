@@ -1,18 +1,13 @@
-import { DiagnosticSeverity, type Diagnostic, type Range } from 'vscode-languageserver'
+import { DiagnosticSeverity, type Range } from 'vscode-languageserver'
+import { DEBUG_CONSTANTS } from '../DEBUG_CONSTANTS'
 import { Stack } from '../util/Stack'
 import { IMPOSSIBLE } from '../util/THROW'
 import { combineRanges } from '../util/range'
-import { PrimitiveValueType, SeparatorType, Side, SingleValueType, TokenType, BlockType, type TToken } from './TToken'
-import { THRDValueType, type THRDData } from '../THRDObject'
+import { TDiagnostic, type DiagnosticTracker } from './DiagnosticTracker'
+import { TDataType, stripPositionInfoFromData, type TDataWithPosition } from './TData'
+import { BlockType, PrimitiveValueType, SeparatorType, Side, SingleValueType, TokenType, type TToken } from './TToken'
 
-class ChunkifyDiagnostic {
-  constructor (
-    readonly diagnostic: Diagnostic,
-    readonly errorTolerable: boolean,
-  ) { }
-}
-
-class UnexpectedEndOfInputChunkifyDiagnostic extends ChunkifyDiagnostic {
+class UnexpectedEndOfInputChunkifyDiagnostic extends TDiagnostic {
   constructor (
     tokens: TToken[],
   ) {
@@ -24,10 +19,12 @@ class UnexpectedEndOfInputChunkifyDiagnostic extends ChunkifyDiagnostic {
         start: endPosition,
         end: endPosition,
       },
-    }, false)
+    }, {
+      canContinue: false,
+    })
   }
 }
-class BracketMismatchDiagnostic extends ChunkifyDiagnostic {
+class BracketMismatchDiagnostic extends TDiagnostic {
   constructor (
     openToken: TToken,
     closeToken: TToken,
@@ -46,10 +43,12 @@ class BracketMismatchDiagnostic extends ChunkifyDiagnostic {
           message,
         },
       ],
-    }, false)
+    }, {
+      canContinue: false,
+    })
   }
 }
-class InvalidTokenDiagnostic extends ChunkifyDiagnostic {
+class InvalidTokenDiagnostic extends TDiagnostic {
   constructor (
     token: TToken,
   ) {
@@ -57,7 +56,7 @@ class InvalidTokenDiagnostic extends ChunkifyDiagnostic {
       message: 'Invalid token',
       severity: DiagnosticSeverity.Error,
       range: token.range,
-    }, true)
+    })
   }
 }
 
@@ -69,7 +68,7 @@ export enum TChunkType {
   ExpressionSeparator,
 }
 
-type TChunk = ({
+export type TChunk = ({
   type: TChunkType.Block
   enumKey?: string
   kind: BlockType
@@ -100,14 +99,13 @@ interface TBlockChunk {
   token?: TToken
 }
 
-function chunkify (tokens: TToken[], blockRangeFull = true): { chunks: TChunk[], allChunks: TChunk[], syntaxDiagnostics: ChunkifyDiagnostic[] } {
+function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: TChunk[], allChunks: TChunk[] } {
   const allChunks: TChunk[] = []
   const globalBlock: TBlockChunk = {
     type: TChunkType.Block,
     children: [],
     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
   }
-  const syntaxDiagnostics: ChunkifyDiagnostic[] = []
   function pushChunk (chunk: TChunk): void {
     chunkStack.top.children.push(chunk)
     allChunks.push(chunk)
@@ -129,7 +127,7 @@ function chunkify (tokens: TToken[], blockRangeFull = true): { chunks: TChunk[],
 
     switch (token.data.type) {
       case TokenType.Invalid:
-        syntaxDiagnostics.push(new InvalidTokenDiagnostic(token))
+        diagnostics.add(new InvalidTokenDiagnostic(token))
         break
       case TokenType.Ignored:
         // ignore, obviously
@@ -187,8 +185,8 @@ function chunkify (tokens: TToken[], blockRangeFull = true): { chunks: TChunk[],
           const token = tokens[i++] ?? null
           if (token === null) {
             // early end of input
-            syntaxDiagnostics.push(new UnexpectedEndOfInputChunkifyDiagnostic(tokens))
-            return { chunks: globalBlock.children, allChunks, syntaxDiagnostics }
+            diagnostics.add(new UnexpectedEndOfInputChunkifyDiagnostic(tokens))
+            return { chunks: globalBlock.children, allChunks }
           }
           involvedTokens.push(token)
           switch (token.data.type) {
@@ -260,11 +258,12 @@ function chunkify (tokens: TToken[], blockRangeFull = true): { chunks: TChunk[],
               const missingFrames = openToken.depth - token.depth
               nFramesToPop += missingFrames
 
-              syntaxDiagnostics.push(new BracketMismatchDiagnostic(openToken, token))
+              diagnostics.add(new BracketMismatchDiagnostic(openToken, token))
             }
 
             for (let n = 0; n < nFramesToPop; n++) {
-              if (blockRangeFull) {
+              if (!DEBUG_CONSTANTS.SHOW_CHUNKS_AS_INFO_DIAGNOSTICS) {
+                // Shrink the range of block chunks to make their innards visible
                 chunkStack.top.range = combineRanges(chunkStack.top.range, token.range)
               }
               const frame = chunkStack.pop()
@@ -280,16 +279,10 @@ function chunkify (tokens: TToken[], blockRangeFull = true): { chunks: TChunk[],
 
   if (chunkStack.top !== globalBlock) {
     // not all blocks were closed
-    syntaxDiagnostics.push(new UnexpectedEndOfInputChunkifyDiagnostic(tokens))
+    diagnostics.add(new UnexpectedEndOfInputChunkifyDiagnostic(tokens))
   }
 
-  return { chunks: globalBlock.children, allChunks, syntaxDiagnostics }
-}
-
-class ParseDiagnostic {
-  constructor (
-    readonly diagnostic: Diagnostic,
-  ) {}
+  return { chunks: globalBlock.children, allChunks }
 }
 
 enum IllegalChunkKind {
@@ -298,7 +291,7 @@ enum IllegalChunkKind {
   ExpectedValue,
   IllegalKeyInListLike,
 }
-class InvalidIllegalChunkDiagnostic extends ParseDiagnostic {
+class InvalidIllegalChunkDiagnostic extends TDiagnostic {
   constructor (
     chunk: TChunk,
     kind: IllegalChunkKind,
@@ -314,7 +307,7 @@ class InvalidIllegalChunkDiagnostic extends ParseDiagnostic {
     })
   }
 }
-class UnexpectedEndOfInputParsingDiagnostic extends ParseDiagnostic {
+class UnexpectedEndOfInputParsingDiagnostic extends TDiagnostic {
   constructor (
     lastChunk: TChunk | undefined,
     expectedKeyNotValue: boolean,
@@ -327,33 +320,32 @@ class UnexpectedEndOfInputParsingDiagnostic extends ParseDiagnostic {
   }
 }
 
-function parseChunkTopLevel (chunk: TChunk): { data?: THRDData, parseDiagnostics: ParseDiagnostic[] } {
-  const parseDiagnostics: ParseDiagnostic[] = []
+function parseChunkTopLevel (chunk: TChunk, diagnostics: DiagnosticTracker): TDataWithPosition {
   switch (chunk.type) {
     case TChunkType.Block:
-      return { data: parseChunksBlock(chunk, parseDiagnostics), parseDiagnostics }
+      return parseChunksBlock(chunk, diagnostics)
     case TChunkType.Value:
-      return { data: parseChunksValue(chunk.data), parseDiagnostics }
+      return parseChunksValue(chunk.data, chunk.range)
     case TChunkType.Key:
     case TChunkType.ExpressionSeparator:
       IMPOSSIBLE()
   }
 }
 
-function parseChunksListLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]): THRDData[] {
+function parseChunksListLike (chunks: TChunk[], diagnostics: DiagnosticTracker): TDataWithPosition[] {
   let expectingSeparator = false
   let justHadSeparator = true
   let justHadWeakSeparator = true
   let expectingValue = true
-  const data: THRDData[] = []
+  const data: TDataWithPosition[] = []
   for (const chunk of chunks) {
     switch (chunk?.type) {
       case TChunkType.Key:
-        diagnostics.push(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.IllegalKeyInListLike))
+        diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.IllegalKeyInListLike))
         break
       case TChunkType.Block:
         if (!expectingValue) {
-          diagnostics.push(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedSeparator))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedSeparator))
           // No break, this is recoverable
         }
 
@@ -365,11 +357,11 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]):
         break
       case TChunkType.Value:
         if (!expectingValue) {
-          diagnostics.push(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedSeparator))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedSeparator))
           // No break, this is recoverable
         }
 
-        data.push(parseChunksValue(chunk.data))
+        data.push(parseChunksValue(chunk.data, chunk.range))
 
         expectingValue = false
         expectingSeparator = true
@@ -383,7 +375,7 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]):
         justHadWeakSeparator = chunk.weak
 
         if (!expectingSeparator) {
-          diagnostics.push(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedValue))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedValue))
           break
         }
         expectingValue = true
@@ -393,23 +385,23 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]):
     }
   }
   if (!expectingSeparator && !justHadSeparator) {
-    diagnostics.push(new UnexpectedEndOfInputParsingDiagnostic(chunks[chunks.length - 1], false))
+    diagnostics.add(new UnexpectedEndOfInputParsingDiagnostic(chunks[chunks.length - 1], false))
   }
   return data
 }
 
-function parseChunksDictLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]): Record<string, THRDData> {
+function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker): Record<string, TDataWithPosition> {
   let expectingSeparator = false
   let justHadSeparator = true
   let justHadWeakSeparator = true
   let expectingKey = true
   let expectingValueWithKey: string | null = null
-  const data: Record<string, THRDData> = {}
+  const data: Record<string, TDataWithPosition> = {}
   for (const chunk of chunks) {
     switch (chunk?.type) {
       case TChunkType.Key:
         if (!expectingKey) {
-          diagnostics.push(new InvalidIllegalChunkDiagnostic(chunk, expectingSeparator ? IllegalChunkKind.ExpectedSeparator : IllegalChunkKind.ExpectedValue))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, expectingSeparator ? IllegalChunkKind.ExpectedSeparator : IllegalChunkKind.ExpectedValue))
 
           if (expectingValueWithKey !== null) {
             break
@@ -425,7 +417,7 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]):
         break
       case TChunkType.Block:
         if (expectingValueWithKey === null) {
-          diagnostics.push(new InvalidIllegalChunkDiagnostic(chunk, expectingKey ? IllegalChunkKind.ExpectedKey : IllegalChunkKind.ExpectedSeparator))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, expectingKey ? IllegalChunkKind.ExpectedKey : IllegalChunkKind.ExpectedSeparator))
           break // NEED key
         }
 
@@ -438,11 +430,11 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]):
         break
       case TChunkType.Value:
         if (expectingValueWithKey === null) {
-          diagnostics.push(new InvalidIllegalChunkDiagnostic(chunk, expectingSeparator ? IllegalChunkKind.ExpectedSeparator : IllegalChunkKind.ExpectedKey))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, expectingSeparator ? IllegalChunkKind.ExpectedSeparator : IllegalChunkKind.ExpectedKey))
           break // NEED key
         }
 
-        data[expectingValueWithKey] = parseChunksValue(chunk.data)
+        data[expectingValueWithKey] = parseChunksValue(chunk.data, chunk.range)
 
         expectingKey = false
         expectingValueWithKey = null
@@ -457,7 +449,7 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]):
         justHadWeakSeparator = chunk.weak
 
         if (!expectingSeparator) {
-          diagnostics.push(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedValue))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedValue))
           break
         }
         expectingKey = true
@@ -468,33 +460,101 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: ParseDiagnostic[]):
     }
   }
   if (!expectingSeparator && !justHadSeparator) {
-    diagnostics.push(new UnexpectedEndOfInputParsingDiagnostic(chunks[chunks.length - 1], false))
+    diagnostics.add(new UnexpectedEndOfInputParsingDiagnostic(chunks[chunks.length - 1], false))
   }
   return data
 }
 
-function parseChunksValue (data: TValueChunkData): THRDData {
+function parseChunksValue (data: TValueChunkData, range: Range): TDataWithPosition {
   switch (data[0]) {
     case SingleValueType.Boolean:
-      return { type: THRDValueType.Boolean, value: data[1] }
+      return { type: TDataType.Boolean, value: data[1], range }
     case SingleValueType.Int:
-      return { type: THRDValueType.Int, value: data[1] }
+      return { type: TDataType.Int, value: data[1], range }
     case SingleValueType.Float:
-      return { type: THRDValueType.Float, value: data[1] }
+      return { type: TDataType.Float, value: data[1], range }
     case SingleValueType.String:
-      return { type: THRDValueType.String, value: data[1] }
+      return { type: TDataType.String, value: data[1], range }
   }
 }
 
-function parseChunksBlock (chunk: { children: TChunk[], enumKey?: string, kind: BlockType, range: Range }, diagnostics: ParseDiagnostic[]): THRDData {
+function parseChunksBlock (chunk: { children: TChunk[], enumKey?: string, kind: BlockType, range: Range }, diagnostics: DiagnosticTracker): TDataWithPosition {
+  const range = chunk.range
   switch (chunk.kind) {
     case BlockType.Dict:
-      return { type: THRDValueType.Dict, value: parseChunksDictLike(chunk.children, diagnostics) }
+      return { type: TDataType.Dict, value: parseChunksDictLike(chunk.children, diagnostics), range }
     case BlockType.Arr:
-      return { type: THRDValueType.Arr, value: parseChunksListLike(chunk.children, diagnostics) }
+      return { type: TDataType.Arr, value: parseChunksListLike(chunk.children, diagnostics), range }
     case BlockType.Tuple:
-      return { type: THRDValueType.Tuple, value: parseChunksListLike(chunk.children, diagnostics) }
+      return { type: TDataType.Tuple, value: parseChunksListLike(chunk.children, diagnostics), range }
   }
 }
 
-export { chunkify, parseChunkTopLevel }
+class EOFExpectedParsingDiagnostic extends TDiagnostic {
+  constructor (chunks: TChunk[]) {
+    super({
+      message: 'End of file expected.',
+      range: combineRanges(chunks[1].range, ...chunks.slice(2).map(v => v.range)),
+    })
+  }
+}
+class DataExpectedParsingDiagnostic extends TDiagnostic {
+  constructor () {
+    super({
+      message: 'Data expected.',
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    }, {
+      canContinue: false,
+    })
+  }
+}
+
+export async function parse (tokens: TToken[], diagnostics: DiagnosticTracker): Promise<TDataWithPosition | null> {
+  // TODO TYPE CHECKING
+
+  const chunkified = chunkify(tokens, diagnostics)
+  const chunks = chunkified.chunks.filter(v => [TChunkType.Block, TChunkType.Value].includes(v.type))
+
+  if (DEBUG_CONSTANTS.SHOW_CHUNKS_AS_INFO_DIAGNOSTICS) {
+    for (const chunk of chunkified.allChunks) {
+      diagnostics.addRaw({
+        message: `chunk/${TChunkType[chunk.type]}${({
+          [TChunkType.Block] (chunk) {
+            return ' [' + BlockType[chunk.kind] + (chunk.enumKey !== undefined ? ` (${chunk.enumKey})` : '') + '] - ' + chunk.children.length.toString() + ' children'
+          },
+          [TChunkType.Key] (chunk) {
+            return ` "${chunk.key}"`
+          },
+          [TChunkType.Value] (chunk) {
+            return ' = (' + SingleValueType[chunk.data[0]] + ') ' + JSON.stringify(chunk.data[1])
+          },
+          [TChunkType.ExpressionSeparator] (_) {
+            return ''
+          },
+        } satisfies { [T in TChunkType]: (a: TChunk & { type: T }) => string })[chunk.type](chunk as any)}`,
+        data: chunk,
+        severity: DiagnosticSeverity.Information,
+        range: chunk.range,
+      })
+    }
+  }
+
+  if (!diagnostics.canContinue) return null
+
+  if (chunks.length === 0) { diagnostics.add(new DataExpectedParsingDiagnostic()) }
+  if (chunks.length >= 2) { diagnostics.add(new EOFExpectedParsingDiagnostic(chunks)) }
+
+  if (!diagnostics.canContinue) return null
+
+  const data = parseChunkTopLevel(chunks[0], diagnostics)
+
+  if (DEBUG_CONSTANTS.SHOW_PARSED_DATA_AS_HINT_DIAGNOSTICS) {
+    diagnostics.addRaw({
+      message: JSON.stringify(stripPositionInfoFromData(data), null, 2),
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      severity: DiagnosticSeverity.Hint,
+    })
+  }
+
+  return data
+}
