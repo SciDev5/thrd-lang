@@ -202,7 +202,6 @@ export class TToken {
       }
       outputTokens.push(TToken.newline(lines, line))
     }
-    console.log(outputTokens)
 
     return outputTokens
   }

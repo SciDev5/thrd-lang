@@ -22,9 +22,11 @@ export type TData = {
 } | {
   type: TDataType.Dict
   value: Record<string, TData>
+  enumKey?: string
 } | {
   type: TDataType.Arr | TDataType.Tuple
   value: TData[]
+  enumKey?: string
 }
 
 export type TDataWithPosition = ({
@@ -38,10 +40,13 @@ export type TDataWithPosition = ({
   value: number
 } | {
   type: TDataType.Dict
+  keyRanges: Record<string, Range>
   value: Record<string, TDataWithPosition>
+  enumKey?: string
 } | {
   type: TDataType.Arr | TDataType.Tuple
   value: TDataWithPosition[]
+  enumKey?: string
 }) & { range: Range }
 
 export function stripPositionInfoFromData (data: TDataWithPosition): TData {
@@ -49,8 +54,12 @@ export function stripPositionInfoFromData (data: TDataWithPosition): TData {
     case TDataType.String:
     case TDataType.Int:
     case TDataType.Float:
-    case TDataType.Boolean:
-      return data
+    case TDataType.Boolean: {
+      const data_: TData & { range?: Range, keyRanges?: Record<string, Range> } = { ...data }
+      delete data_.range
+      delete data_.keyRanges
+      return data_
+    }
 
     case TDataType.Dict:
       return { type: data.type, value: Object.fromEntries(Object.entries(data.value).map(([k, v]) => [k, stripPositionInfoFromData(v)])) }

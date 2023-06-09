@@ -319,6 +319,16 @@ class UnexpectedEndOfInputParsingDiagnostic extends TDiagnostic {
     })
   }
 }
+class DuplicatePropertyKeyParsingDiagnostic extends TDiagnostic {
+  constructor (
+    chunk: TChunk & { type: TChunkType.Key },
+  ) {
+    super({
+      message: `Duplicate property key "${chunk.key}".`,
+      range: chunk.range,
+    })
+  }
+}
 
 function parseChunkTopLevel (chunk: TChunk, diagnostics: DiagnosticTracker): TDataWithPosition {
   switch (chunk.type) {
@@ -390,13 +400,15 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
   return data
 }
 
-function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker): Record<string, TDataWithPosition> {
+function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker): { value: Record<string, TDataWithPosition>, keyRanges: Record<string, Range> } {
   let expectingSeparator = false
   let justHadSeparator = true
   let justHadWeakSeparator = true
   let expectingKey = true
   let expectingValueWithKey: string | null = null
+  let lastKeyWasDuplicate = false
   const data: Record<string, TDataWithPosition> = {}
+  const keyRanges: Record<string, Range> = {}
   for (const chunk of chunks) {
     switch (chunk?.type) {
       case TChunkType.Key:
@@ -410,6 +422,14 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
             // No break, this is recoverable
           }
         }
+
+        lastKeyWasDuplicate = chunk.key in data
+        if (lastKeyWasDuplicate) {
+          diagnostics.add(new DuplicatePropertyKeyParsingDiagnostic(chunk))
+        } else {
+          keyRanges[chunk.key] = chunk.range
+        }
+
         expectingKey = false
         expectingValueWithKey = chunk.key
         expectingSeparator = false
@@ -421,7 +441,11 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
           break // NEED key
         }
 
-        data[expectingValueWithKey] = parseChunksBlock(chunk, diagnostics)
+        if (lastKeyWasDuplicate) {
+          // ignore this value if last key was a duplicate
+        } else {
+          data[expectingValueWithKey] = parseChunksBlock(chunk, diagnostics)
+        }
 
         expectingKey = false
         expectingValueWithKey = null
@@ -434,7 +458,11 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
           break // NEED key
         }
 
-        data[expectingValueWithKey] = parseChunksValue(chunk.data, chunk.range)
+        if (lastKeyWasDuplicate) {
+          // ignore this value if last key was a duplicate
+        } else {
+          data[expectingValueWithKey] = parseChunksValue(chunk.data, chunk.range)
+        }
 
         expectingKey = false
         expectingValueWithKey = null
@@ -462,7 +490,7 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
   if (!expectingSeparator && !justHadSeparator) {
     diagnostics.add(new UnexpectedEndOfInputParsingDiagnostic(chunks[chunks.length - 1], false))
   }
-  return data
+  return { value: data, keyRanges }
 }
 
 function parseChunksValue (data: TValueChunkData, range: Range): TDataWithPosition {
@@ -479,14 +507,16 @@ function parseChunksValue (data: TValueChunkData, range: Range): TDataWithPositi
 }
 
 function parseChunksBlock (chunk: { children: TChunk[], enumKey?: string, kind: BlockType, range: Range }, diagnostics: DiagnosticTracker): TDataWithPosition {
-  const range = chunk.range
+  const { range, enumKey } = chunk
   switch (chunk.kind) {
-    case BlockType.Dict:
-      return { type: TDataType.Dict, value: parseChunksDictLike(chunk.children, diagnostics), range }
+    case BlockType.Dict: {
+      const { value, keyRanges } = parseChunksDictLike(chunk.children, diagnostics)
+      return { type: TDataType.Dict, value, keyRanges, range, enumKey }
+    }
     case BlockType.Arr:
-      return { type: TDataType.Arr, value: parseChunksListLike(chunk.children, diagnostics), range }
+      return { type: TDataType.Arr, value: parseChunksListLike(chunk.children, diagnostics), range, enumKey }
     case BlockType.Tuple:
-      return { type: TDataType.Tuple, value: parseChunksListLike(chunk.children, diagnostics), range }
+      return { type: TDataType.Tuple, value: parseChunksListLike(chunk.children, diagnostics), range, enumKey }
   }
 }
 
@@ -510,8 +540,6 @@ class DataExpectedParsingDiagnostic extends TDiagnostic {
 }
 
 export async function parse (tokens: TToken[], diagnostics: DiagnosticTracker): Promise<TDataWithPosition | null> {
-  // TODO TYPE CHECKING
-
   const chunkified = chunkify(tokens, diagnostics)
   const chunks = chunkified.chunks.filter(v => [TChunkType.Block, TChunkType.Value].includes(v.type))
 

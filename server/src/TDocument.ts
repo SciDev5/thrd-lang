@@ -4,8 +4,10 @@ import { capabilities } from './capabilities'
 import { DiagnosticTracker } from './parsing/DiagnosticTracker'
 import { type TDataWithPosition } from './parsing/TData'
 import { TToken } from './parsing/TToken'
+import { lintingTypeCheck, type TTypeSpec } from './parsing/TTypeSpec'
 import { parse } from './parsing/parse'
 import { globalSettings, type THRDServerSettings } from './settings'
+import { TEST_TYPE } from './TEST_TYPE'
 
 const documents = new TextDocuments(TextDocument)
 let connection: Connection
@@ -31,6 +33,12 @@ export class TParsedDoc {
     readonly tokens: TToken[],
     readonly data: TDataWithPosition,
   ) {}
+
+  lintingTypeCheck (typeSpec: TTypeSpec): DiagnosticTracker {
+    const diagnostics = new DiagnosticTracker()
+    lintingTypeCheck(this.data, typeSpec, diagnostics)
+    return diagnostics
+  }
 }
 
 export class TDocument {
@@ -102,7 +110,12 @@ export class TDocument {
     const [parsedDoc, syntaxDiagnostics] = await this.parsed
     diagnostics.mergeIn(syntaxDiagnostics)
 
-    console.log('parsed doc', parsedDoc)
+    console.log('DOC', parsedDoc)
+
+    if (parsedDoc !== null) {
+      const typeDiagnostics = parsedDoc.lintingTypeCheck(TEST_TYPE)
+      diagnostics.mergeIn(typeDiagnostics)
+    }
 
     await connection.sendDiagnostics({
       uri: this.document.uri,
