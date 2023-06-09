@@ -2,56 +2,47 @@
 	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
 	"name": "Typestrong Human-Readable Data",
 	"scopeName": "source.thrd",
-	"patterns_": [
-		{
-			"include": "#expression"
-		},
-		{
-			"include": "#comments"
-		}
-	],
 	"patterns": [
 		{
-			"include": "#value"
+			"include": "#expression"
 		}
 	],
 	"repository": {
 		"expression": {
-			"name": "meta.expression.thrd",
-			"begin": "(\\w+)\\s*(:)",
-			"end": ",",
-			"beginCaptures": {
+			"patterns": [
+				{
+					"include": "#property-key"
+				},
+				{
+					"include": "#expression-separator"
+				},
+				{
+					"include": "#primitive"
+				},
+				{
+					"include": "#blocks"
+				},
+				{
+					"include": "#non-coding"
+				}
+			]
+		},
+		"property-key": {
+			"match": "\\b(\\w+)\\s*(:)",
+			"captures": {
 				"1": {
 					"name": "variable.name.thrd"
 				},
 				"2": {
 					"name": "punctuation.separator.keyValue.thrd"
 				}
-			},
-			"endCaptures": {
-				"0": {
-					"name": "punctuation.separator.list.thrd"
-				}
-			},
-			"patterns": [
-				{
-					"include": "#value"
-				}
-			]
+			}
 		},
-		"value": {
-			"patterns": [
-				{
-					"include": "#primitive"
-				},
-				{
-					"include": "#comments"
-				},
-				{
-					"include": "#blocks"
-				}
-			]
+		"expression-separator": {
+			"match": ",",
+			"name": "punctuation.separator.list.thrd"
 		},
+
 		"blocks": {
 			"patterns": [
 				{
@@ -59,7 +50,7 @@
 					"begin": "(\\w+)?\\s*(\\{)",
 					"beginCaptures": {
 						"1": {
-							"name": "support.class.enum.reference.thrd"
+							"name": "support.class.enum.name.thrd"
 						},
 						"2": {
 							"name": "punctuation.block.begin.dict.thrd"
@@ -82,7 +73,7 @@
 					"begin": "(\\w+)?\\s*(\\[)",
 					"beginCaptures": {
 						"1": {
-							"name": "support.class.enum.reference.thrd"
+							"name": "support.class.enum.name.thrd"
 						},
 						"2": {
 							"name": "punctuation.block.begin.arr.thrd"
@@ -96,7 +87,7 @@
 					},
 					"patterns": [
 						{
-							"include": "#array-element"
+							"include": "#expression"
 						}
 					]
 				},
@@ -105,7 +96,7 @@
 					"begin": "(\\w+)?\\s*(\\()",
 					"beginCaptures": {
 						"1": {
-							"name": "support.class.enum.reference.thrd"
+							"name": "support.class.enum.name.thrd"
 						},
 						"2": {
 							"name": "punctuation.block.begin.tuple.thrd"
@@ -119,27 +110,13 @@
 					},
 					"patterns": [
 						{
-							"include": "#array-element"
+							"include": "#expression"
 						}
 					]
 				}
 			]
 		},
-		"array-element": {
-			"patterns": [
-				{
-					"match": ",",
-					"captures": {
-						"0": {
-							"name": "punctuation.separator.list.thrd"
-						}
-					}
-				},
-				{
-					"include": "#value"
-				}
-			]
-		},
+		
 		"primitive": {
 			"patterns": [
 				{
@@ -158,7 +135,7 @@
 		},
 		"boolean": {
 			"name": "constant.language.boolean.thrd",
-			"match": "true|false"
+			"match": "\\b(true|false)\\b"
 		},
 		"integer": {
 			"name": "constant.numeric.integer.thrd",
@@ -221,6 +198,24 @@
 				}
 			]
 		},
+		"escape-string": {
+			"name": "constant.character.escape.string.thrd",
+			"match": "\\\\(?:\\\\|[nr]|x[0-f0-F]{2}|u[0-f0-F]{4}|\\r?$)"
+		},
+
+		"non-coding": {
+			"patterns": [
+				{
+					"include": "#comments"
+				},
+				{
+					"include": "#whitespaces"
+				},
+				{
+					"include": "#invalids"
+				}
+			]
+		},
 		"comments": {
 			"patterns": [
 				{
@@ -235,9 +230,13 @@
 				}
 			]
 		},
-		"escape-string": {
-			"name": "constant.character.escape.string.thrd",
-			"match": "\\\\."
+		"whitespaces": {
+			"match": "\\s+",
+			"name": "whitespace.thrd"
+		},
+		"invalids": {
+			"match": "\\S+\\b|\\S+",
+			"name": "invalid.illegal.thrd"
 		}
 	}
 }

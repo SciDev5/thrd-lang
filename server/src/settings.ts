@@ -22,7 +22,7 @@ export function bindSettings (connection: Connection): void {
     }
 
     Promise.all(THRDDocument.all().map(async v => {
-      await v.validate()
+      await v.validateAndSend()
     })).catch(THROW)
   })
 }
