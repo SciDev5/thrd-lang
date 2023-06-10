@@ -29,6 +29,9 @@
 					"include": "#blocks"
 				},
 				{
+					"include": "#unit-enum"
+				},
+				{
 					"include": "#non-coding"
 				}
 			]
@@ -49,14 +52,22 @@
 			"name": "punctuation.separator.list.thrd"
 		},
 
+		"unit-enum": {
+			"match": "#\\w+",
+			"captures": {
+				"0": {
+					"name": "support.class.enum.unit.thrd"
+				}
+			}
+		},
 		"blocks": {
 			"patterns": [
 				{
 					"name": "meta.block.dict.thrd",
-					"begin": "(\\w+)?(\\s*)(\\{)",
+					"begin": "(#\\w+)?(\\s*)(\\{)",
 					"beginCaptures": {
 						"1": {
-							"name": "support.class.enum.name.thrd"
+							"name": "support.class.enum.struct.thrd"
 						},
 						"2": {
 							"name": "whitespace.thrd"
@@ -79,10 +90,10 @@
 				},
 				{
 					"name": "meta.block.arr.thrd",
-					"begin": "(\\w+)?(\\s*)(\\[)",
+					"begin": "(#\\w+)?(\\s*)(\\[)",
 					"beginCaptures": {
 						"1": {
-							"name": "support.class.enum.name.thrd"
+							"name": "support.class.enum.struct.thrd"
 						},
 						"2": {
 							"name": "whitespace.thrd"
@@ -105,10 +116,10 @@
 				},
 				{
 					"name": "meta.block.tuple.thrd",
-					"begin": "(\\w+)?(\\s*)(\\()",
+					"begin": "(#\\w+)?(\\s*)(\\()",
 					"beginCaptures": {
 						"1": {
-							"name": "support.class.enum.name.thrd"
+							"name": "support.class.enum.struct.thrd"
 						},
 						"2": {
 							"name": "whitespace.thrd"
@@ -154,11 +165,12 @@
 		},
 		"integer": {
 			"name": "constant.numeric.integer.thrd",
-			"match": "-?\\d+"
+			"match": "-?(\\d([\\d_]*\\d)?)\\b"
 		},
 		"float": {
 			"name": "constant.numeric.float.thrd",
-			"match": "-?\\d*\\.\\d+(?:[eE][+-]\\d+)?"
+			"comment": "-?((\\d*|\\d[\\d_]*\\d)\\.\\d([\\d_]*\\d)?([eE][+-]\\d+)?|Infinity|PI|E|TAO)\\b",
+			"match": "-?(\\d*|\\d[\\d_]*\\d)\\.\\d([\\d_]*\\d)?([eE][+-]\\d+)?\\b"
 		},
 		"string": {
 			"patterns": [

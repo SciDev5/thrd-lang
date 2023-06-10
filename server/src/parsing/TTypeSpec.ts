@@ -7,6 +7,7 @@ import { BlockType, SingleValueType } from './TToken'
 
 export enum TTypeSpecType {
   Primitive,
+  Enum,
   Block,
 }
 
@@ -16,11 +17,11 @@ export type TTypeSpec = {
 } | ({
   type: TTypeSpecType.Block
 } & BlockTypeSpec) | {
-  type: TTypeSpecType.Block
+  type: TTypeSpecType.Enum
   enumSpec: TTypeEnumSpec
 }
 
-export type TTypeEnumSpec = Record<string, BlockTypeSpec>
+export type TTypeEnumSpec = Record<string, BlockTypeSpec | null>
 
 type BlockTypeSpec = {
   kind: BlockType.Dict
@@ -60,14 +61,10 @@ function blockTypeKindName (type: BlockType): string {
 
 function typeName (type: TTypeSpec): string {
   switch (type.type) {
+    case TTypeSpecType.Enum:
+      return Object.keys(type.enumSpec).join(' | ')
     case TTypeSpecType.Block:
-      if ('enumSpec' in type) {
-        return Object.keys(type.enumSpec).join(' | ')
-      } else if ('kind' in type) {
-        return blockTypeName(type)
-      } else {
-        return IMPOSSIBLE()
-      }
+      return blockTypeName(type)
     case TTypeSpecType.Primitive:
       return primitiveTypeName(type.which)
   }
@@ -118,7 +115,7 @@ class TupleTooFewEltsTypeDiagnostic extends TDiagnostic {
 
 class DictUnexpectedPropertyTypeDiagnostic extends TDiagnostic {
   constructor (
-    received: TDataWithPosition & { type: TDataType.Dict },
+    received: { keyRanges: Record<string, Range> },
     key: string,
   ) {
     super({
@@ -180,131 +177,73 @@ class EnumOptionUnavailableTypeDiagnostic extends TDiagnostic {
 
 export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diagnostics: DiagnosticTracker): boolean {
   switch (data.type) {
-    case TDataType.Boolean:
-    case TDataType.Int:
-    case TDataType.Float:
-    case TDataType.String: {
-      const dataWhich = ({
-        [TDataType.Boolean]: SingleValueType.Boolean,
-        [TDataType.Int]: SingleValueType.Int,
-        [TDataType.Float]: SingleValueType.Float,
-        [TDataType.String]: SingleValueType.String,
-      } satisfies { [v in typeof data['type']]: SingleValueType })[data.type]
+    case TDataType.Primitive:
       if (type.type === TTypeSpecType.Primitive) {
-        if (dataWhich === type.which) {
+        if (data.which === type.which) {
           return true
         } else {
           // Found wrong primitive
           diagnostics.add(new TypeMismatchTypeDiagnostic(
             data.range,
             primitiveTypeName(type.which),
-            primitiveTypeName(dataWhich),
+            primitiveTypeName(data.which),
           ))
           return false
         }
       } else {
-        // Found primitive, expected block
+        // Found block, expected something else
         diagnostics.add(new TypeMismatchTypeDiagnostic(
           data.range,
           typeName(type),
-          primitiveTypeName(dataWhich),
+          primitiveTypeName(data.which),
         ))
         return false
       }
-    }
-    case TDataType.Arr:
-    case TDataType.Tuple:
-    case TDataType.Dict: {
-      const dataKind = ({
-        [TDataType.Dict]: BlockType.Dict,
-        [TDataType.Arr]: BlockType.Arr,
-        [TDataType.Tuple]: BlockType.Tuple,
-      } satisfies { [v in typeof data['type']]: BlockType })[data.type]
-
+    case TDataType.Block:
       if (type.type === TTypeSpecType.Block) {
-        const receivedEnumKey = data.enumKey
-        let expectedType_: BlockTypeSpec
-        if ('enumSpec' in type) {
-          const { enumSpec } = type
-          if (receivedEnumKey === undefined) {
-            // Was expecting to receive enum key, but none is present
-            diagnostics.add(new EnumExpectedTypeDiagnostic(
-              data,
-              enumSpec,
-            ))
-            return false
-          }
-          if (!(receivedEnumKey in enumSpec)) {
-            // The enum key received was not a valid option
-            diagnostics.add(new EnumOptionUnavailableTypeDiagnostic(
-              data,
-              receivedEnumKey,
-              enumSpec,
-            ))
-            return false
-          }
-          expectedType_ = enumSpec[receivedEnumKey]
-        } else if ('kind' in type) {
-          const enumKey = data.enumKey
-          if (enumKey !== undefined) {
-            // Was not expecting an enum key, but received one anyway
-            diagnostics.add(new EnumUnexpectedTypeDiagnostic(
-              data,
-              enumKey,
-              dataKind,
-              type,
-            ))
-            return false
-          }
-          expectedType_ = type
-        } else {
-          IMPOSSIBLE()
-        }
-        const expectedType = expectedType_
-
-        if (dataKind !== expectedType.kind) {
+        if (data.kind !== type.kind) {
           // Found wrong kind of block
           diagnostics.add(new TypeMismatchTypeDiagnostic(
             data.range,
-            blockTypeName(expectedType),
-            blockTypeKindName(dataKind),
+            blockTypeName(type),
+            blockTypeKindName(data.kind),
           ))
           return false
         }
 
-        switch (data.type) {
-          case TDataType.Arr:{
-            if (expectedType.kind !== BlockType.Arr) IMPOSSIBLE()
+        switch (data.kind) {
+          case BlockType.Arr:{
+            if (type.kind !== BlockType.Arr) IMPOSSIBLE()
             let allOk = true
-            for (const elt of data.value) {
-              const ok = lintingTypeCheck(elt, expectedType.contents, diagnostics)
+            for (const elt of data.contents) {
+              const ok = lintingTypeCheck(elt, type.contents, diagnostics)
               allOk &&= ok
             }
             return allOk
           }
-          case TDataType.Tuple: {
-            if (expectedType.kind !== BlockType.Tuple) IMPOSSIBLE()
-            const nExpected = expectedType.contents.length
-            const nData = data.value.length
+          case BlockType.Tuple: {
+            if (type.kind !== BlockType.Tuple) IMPOSSIBLE()
+            const nExpected = type.contents.length
+            const nData = data.contents.length
             if (nData > nExpected) {
               // Received too many elements into tuple
-              diagnostics.add(new TupleTooManyEltsTypeDiagnostic(expectedType.contents, data.value))
+              diagnostics.add(new TupleTooManyEltsTypeDiagnostic(type.contents, data.contents))
             }
             if (nData < nExpected) {
               // Received too few elements into tuple
-              diagnostics.add(new TupleTooFewEltsTypeDiagnostic(expectedType.contents, data.value, data.range))
+              diagnostics.add(new TupleTooFewEltsTypeDiagnostic(type.contents, data.contents, data.range))
             }
             let allOk = true
             for (let i = 0; i < Math.min(nData, nExpected); i++) {
-              const ok = lintingTypeCheck(data.value[i], expectedType.contents[i], diagnostics)
+              const ok = lintingTypeCheck(data.contents[i], type.contents[i], diagnostics)
               allOk &&= ok
             }
             return allOk
           }
-          case TDataType.Dict: {
-            if (expectedType.kind !== BlockType.Dict) IMPOSSIBLE()
-            const keysExpected = new Set(Object.keys(expectedType.contents))
-            const keysData = new Set(Object.keys(data.value))
+          case BlockType.Dict: {
+            if (type.kind !== BlockType.Dict) IMPOSSIBLE()
+            const keysExpected = new Set(Object.keys(type.contents))
+            const keysData = new Set(Object.keys(data.contents))
             const keysDataLoose = new Set(Object.keys(data.keyRanges))
 
             const mismatched = setXOR(keysExpected, keysDataLoose)
@@ -318,7 +257,7 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
                 // There are missing properties
                 diagnostics.add(new DictMissingPropertyTypeDiagnostic(
                   data,
-                  expectedType,
+                  type,
                   missing,
                 ))
               }
@@ -333,21 +272,262 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
             }
 
             for (const key of setAnd(keysExpected, keysData)) {
-              const ok = lintingTypeCheck(data.value[key], expectedType.contents[key], diagnostics)
+              const ok = lintingTypeCheck(data.contents[key], type.contents[key], diagnostics)
               allOk &&= ok
             }
             return allOk
           }
+          default:
+            return IMPOSSIBLE()
         }
+      } else if (type.type === TTypeSpecType.Enum) {
+        // Was expecting to receive enum key, but none is present
+        diagnostics.add(new EnumExpectedTypeDiagnostic(
+          data,
+          type.enumSpec,
+        ))
+        return false
       } else {
-        // Found block, expected primitive
+        // Found primitive, expected something else
         diagnostics.add(new TypeMismatchTypeDiagnostic(
           data.range,
-          primitiveTypeName(type.which),
-          blockTypeKindName(dataKind),
+          typeName(type),
+          blockTypeKindName(data.kind),
         ))
         return false
       }
-    }
+    case TDataType.Enum:
+      if (type.type === TTypeSpecType.Enum) {
+        if (!(data.enumKey in type.enumSpec)) {
+          // The enum key received was not a valid option
+          diagnostics.add(new EnumOptionUnavailableTypeDiagnostic(
+            data,
+            data.enumKey,
+            type.enumSpec,
+          ))
+          return false
+        }
+
+        const enumSpec = type.enumSpec[data.enumKey]
+        const { contents } = data
+        if (enumSpec === null) {
+          if (contents === undefined) {
+            return true
+          } else {
+            // Found structured, expected unit
+            diagnostics.add(new TypeMismatchTypeDiagnostic(
+              data.range,
+              '<unit>',
+              blockTypeKindName(contents.kind),
+            ))
+            return false
+          }
+        } else {
+          if (contents === undefined) {
+            // Found unit, expected structured
+            diagnostics.add(new TypeMismatchTypeDiagnostic(
+              data.range,
+              blockTypeKindName(enumSpec.kind),
+              '<unit>',
+            ))
+            return false
+          } else {
+            return lintingTypeCheck({ type: TDataType.Block, ...contents }, { type: TTypeSpecType.Block, ...enumSpec }, diagnostics)
+          }
+        }
+      } else if (type.type === TTypeSpecType.Block && data.contents !== null) {
+        // Was not expecting an enum key, but received one anyway
+        diagnostics.add(new EnumUnexpectedTypeDiagnostic(
+          data,
+          data.enumKey,
+          (data.contents ?? IMPOSSIBLE()).kind,
+          type,
+        ))
+        return false
+      } else {
+        // Found enum, expected something else
+        diagnostics.add(new TypeMismatchTypeDiagnostic(
+          data.range,
+          typeName(type),
+          data.enumKey,
+        ))
+        return false
+      }
   }
+
+  // switch (data.type) {
+  //   // case TDataType.Boolean:
+  //   // case TDataType.Int:
+  //   // case TDataType.Float:
+  //   // case TDataType.String: {
+  //   //   const dataWhich = ({
+  //   //     [TDataType.Boolean]: SingleValueType.Boolean,
+  //   //     [TDataType.Int]: SingleValueType.Int,
+  //   //     [TDataType.Float]: SingleValueType.Float,
+  //   //     [TDataType.String]: SingleValueType.String,
+  //   //   } satisfies { [v in typeof data['type']]: SingleValueType })[data.type]
+  //   //   if (type.type === TTypeSpecType.Primitive) {
+  //   //     if (dataWhich === type.which) {
+  //   //       // return true
+  //   //     } else {
+  //   //       // // Found wrong primitive
+  //   //       // diagnostics.add(new TypeMismatchTypeDiagnostic(
+  //   //       //   data.range,
+  //   //       //   primitiveTypeName(type.which),
+  //   //       //   primitiveTypeName(dataWhich),
+  //   //       // ))
+  //   //       // return false
+  //   //     }
+  //   //   } else {
+  //   //     // // Expected block, found other
+  //   //     // diagnostics.add(new TypeMismatchTypeDiagnostic(
+  //   //     //   data.range,
+  //   //     //   typeName(type),
+  //   //     //   primitiveTypeName(dataWhich),
+  //   //     // ))
+  //   //     // return false
+  //   //   }
+  //   // }
+  //   case TDataType.Unit: {
+  //     // data
+  //     return false
+  //   }
+  //   case TDataType.Arr:
+  //   case TDataType.Tuple:
+  //   case TDataType.Dict: {
+  //     const dataKind = ({
+  //       [TDataType.Dict]: BlockType.Dict,
+  //       [TDataType.Arr]: BlockType.Arr,
+  //       [TDataType.Tuple]: BlockType.Tuple,
+  //     } satisfies { [v in typeof data['type']]: BlockType })[data.type]
+
+  //     if (type.type === TTypeSpecType.Block) {
+  //       const receivedEnumKey = data.enumKey
+  //       let expectedType_: BlockTypeSpec
+  //       if ('enumSpec' in type) {
+  //         const { enumSpec } = type
+  //         if (receivedEnumKey === undefined) {
+  //           // Was expecting to receive enum key, but none is present
+  //           diagnostics.add(new EnumExpectedTypeDiagnostic(
+  //             data,
+  //             enumSpec,
+  //           ))
+  //           return false
+  //         }
+  //         if (!(receivedEnumKey in enumSpec)) {
+  //           // The enum key received was not a valid option
+  //           diagnostics.add(new EnumOptionUnavailableTypeDiagnostic(
+  //             data,
+  //             receivedEnumKey,
+  //             enumSpec,
+  //           ))
+  //           return false
+  //         }
+  //         expectedType_ = enumSpec[receivedEnumKey]
+  //       } else if ('kind' in type) {
+  //         const enumKey = data.enumKey
+  //         if (enumKey !== undefined) {
+  //           // Was not expecting an enum key, but received one anyway
+  //           diagnostics.add(new EnumUnexpectedTypeDiagnostic(
+  //             data,
+  //             enumKey,
+  //             dataKind,
+  //             type,
+  //           ))
+  //           return false
+  //         }
+  //         expectedType_ = type
+  //       } else {
+  //         IMPOSSIBLE()
+  //       }
+  //       const expectedType = expectedType_
+
+  //       if (dataKind !== expectedType.kind) {
+  //         // // Found wrong kind of block
+  //         // diagnostics.add(new TypeMismatchTypeDiagnostic(
+  //         //   data.range,
+  //         //   blockTypeName(expectedType),
+  //         //   blockTypeKindName(dataKind),
+  //         // ))
+  //         // return false
+  //       }
+
+  //       switch (data.type) {
+  //         case TDataType.Arr:{
+  //           if (expectedType.kind !== BlockType.Arr) IMPOSSIBLE()
+  //           let allOk = true
+  //           for (const elt of data.value) {
+  //             const ok = lintingTypeCheck(elt, expectedType.contents, diagnostics)
+  //             allOk &&= ok
+  //           }
+  //           return allOk
+  //         }
+  //         case TDataType.Tuple: {
+  //           if (expectedType.kind !== BlockType.Tuple) IMPOSSIBLE()
+  //           const nExpected = expectedType.contents.length
+  //           const nData = data.value.length
+  //           if (nData > nExpected) {
+  //             // Received too many elements into tuple
+  //             diagnostics.add(new TupleTooManyEltsTypeDiagnostic(expectedType.contents, data.value))
+  //           }
+  //           if (nData < nExpected) {
+  //             // Received too few elements into tuple
+  //             diagnostics.add(new TupleTooFewEltsTypeDiagnostic(expectedType.contents, data.value, data.range))
+  //           }
+  //           let allOk = true
+  //           for (let i = 0; i < Math.min(nData, nExpected); i++) {
+  //             const ok = lintingTypeCheck(data.value[i], expectedType.contents[i], diagnostics)
+  //             allOk &&= ok
+  //           }
+  //           return allOk
+  //         }
+  //         case TDataType.Dict: {
+  //           if (expectedType.kind !== BlockType.Dict) IMPOSSIBLE()
+  //           const keysExpected = new Set(Object.keys(expectedType.contents))
+  //           const keysData = new Set(Object.keys(data.value))
+  //           const keysDataLoose = new Set(Object.keys(data.keyRanges))
+
+  //           const mismatched = setXOR(keysExpected, keysDataLoose)
+
+  //           let allOk = true
+  //           if (mismatched.size !== 0) {
+  //             const unexpected = setAnd(mismatched, keysData)
+  //             const missing = setAnd(mismatched, keysExpected)
+
+  //             if (missing.size > 0) {
+  //               // There are missing properties
+  //               diagnostics.add(new DictMissingPropertyTypeDiagnostic(
+  //                 data,
+  //                 expectedType,
+  //                 missing,
+  //               ))
+  //             }
+  //             for (const key of unexpected) {
+  //               // There are extra properties
+  //               diagnostics.add(new DictUnexpectedPropertyTypeDiagnostic(
+  //                 data,
+  //                 key,
+  //               ))
+  //             }
+  //             allOk = false
+  //           }
+
+  //           for (const key of setAnd(keysExpected, keysData)) {
+  //             const ok = lintingTypeCheck(data.value[key], expectedType.contents[key], diagnostics)
+  //             allOk &&= ok
+  //           }
+  //           return allOk
+  //         }
+  //       }
+  //     } else {
+  //       // Expected primitive, found something else
+  //       diagnostics.add(new TypeMismatchTypeDiagnostic(
+  //         data.range,
+  //         primitiveTypeName(type.which),
+  //         blockTypeKindName(dataKind),
+  //       ))
+  //       return false
+  //     }
+  //   }
+  // }
 }

@@ -35,17 +35,27 @@ export const TEST_TYPE: TTypeSpec = {
     },
     d: {
       type: TTypeSpecType.Block,
-      enumSpec: {
-        Hello: {
-          kind: BlockType.Tuple,
-          contents: [],
-        },
-        World: {
-          kind: BlockType.Arr,
-          contents: {
-            type: TTypeSpecType.Primitive,
-            which: SingleValueType.String,
+      kind: BlockType.Arr,
+      contents: {
+        type: TTypeSpecType.Enum,
+        enumSpec: {
+          Hello: {
+            kind: BlockType.Tuple,
+            contents: [
+              {
+                type: TTypeSpecType.Primitive,
+                which: SingleValueType.Int,
+              },
+            ],
           },
+          World: {
+            kind: BlockType.Arr,
+            contents: {
+              type: TTypeSpecType.Primitive,
+              which: SingleValueType.String,
+            },
+          },
+          Unit: null,
         },
       },
     },

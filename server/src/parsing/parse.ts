@@ -64,15 +64,19 @@ export enum TChunkType {
   Block,
   Key,
   Value,
+  Enum,
   /** These are the commas */
   ExpressionSeparator,
 }
 
 export type TChunk = ({
   type: TChunkType.Block
-  enumKey?: string
   kind: BlockType
   children: TChunk[]
+} | {
+  type: TChunkType.Enum
+  enumKey: string
+  children: TChunk & { type: TChunkType.Block } | null
 } | {
   type: TChunkType.Key
   key: string
@@ -92,7 +96,6 @@ type TValueChunkData = (
 
 interface TBlockChunk {
   type: TChunkType.Block
-  enumKey?: string
   kind?: BlockType
   children: TChunk[]
   range: Range
@@ -147,6 +150,7 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
           case SeparatorType.KeyValue:
             // Should be absorbed by `PropertyKey` token parsing
             IMPOSSIBLE()
+            break
         }
         break
       case TokenType.PrimitiveData: {
@@ -156,10 +160,14 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
             data = [SingleValueType.Boolean, token.text === 'true']
             break
           case PrimitiveValueType.Int:
-            data = [SingleValueType.Int, parseInt(token.text)]
+            data = [SingleValueType.Int, parseInt(token.text.replace(/_/g, ''))]
             break
           case PrimitiveValueType.Float:
-            data = [SingleValueType.Float, parseFloat(token.text)]
+            // data = [SingleValueType.Float, (
+            //   /-?(PI|TAO|E|Infinity)/.test(token.text)
+            //     ? ({ PI: Math.PI, TAO: Math.PI * 2, E: Math.E, Infinity }[token.text.replace(/-/g, '')] ?? IMPOSSIBLE()) * (token.text.includes('-') ? -1 : 1)
+            //     : parseFloat(token.text.replace(/_/g, '')))]
+            data = [SingleValueType.Float, parseFloat(token.text.replace(/_/g, ''))]
             break
         }
         pushChunk({ type: TChunkType.Value, data, range: token.range })
@@ -230,19 +238,30 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
         IMPOSSIBLE()
         break
       case TokenType.EnumKey:
-        enumKey = token
-        canInsertWeakSeparator = false
+        if (token.data.isUnit) {
+          pushChunk({ type: TChunkType.Enum, enumKey: token.text.substring(1), range: token.range, children: null })
+          enumKey = undefined
+          canInsertWeakSeparator = true
+        } else {
+          enumKey = token
+          canInsertWeakSeparator = false
+        }
         break
       case TokenType.BlockBoundary:
         switch (token.data.side) {
           case Side.Begin: {
-            const chunk: TChunk & TBlockChunk = (
-              enumKey !== undefined
-                ? { type: TChunkType.Block, enumKey: enumKey.text, kind: token.data.kind, range: combineRanges(enumKey.range, token.range), children: [], token }
-                : { type: TChunkType.Block, kind: token.data.kind, range: token.range, children: [], token }
-            )
+            const chunk: TChunk & TBlockChunk = { type: TChunkType.Block, kind: token.data.kind, range: token.range, children: [], token }
+            if (enumKey !== undefined) {
+              pushChunk({
+                type: TChunkType.Enum,
+                children: chunk,
+                enumKey: enumKey.text.substring(1),
+                range: combineRanges(enumKey.range, chunk.range),
+              })
+            } else {
+              pushChunk(chunk)
+            }
             enumKey = undefined
-            pushChunk(chunk)
             canInsertWeakSeparator = false
             chunkStack.push(chunk)
           }
@@ -334,11 +353,22 @@ function parseChunkTopLevel (chunk: TChunk, diagnostics: DiagnosticTracker): TDa
   switch (chunk.type) {
     case TChunkType.Block:
       return parseChunksBlock(chunk, diagnostics)
+    case TChunkType.Enum:
+      return parseChunksEnum(chunk, diagnostics)
     case TChunkType.Value:
       return parseChunksValue(chunk.data, chunk.range)
     case TChunkType.Key:
     case TChunkType.ExpressionSeparator:
       IMPOSSIBLE()
+  }
+}
+
+function parseChunksEnum (chunk: TChunk & { type: TChunkType.Enum }, diagnostics: DiagnosticTracker): TDataWithPosition {
+  return {
+    type: TDataType.Enum,
+    enumKey: chunk.enumKey,
+    range: chunk.range,
+    contents: chunk.children !== null ? parseChunksBlock(chunk.children, diagnostics) : undefined,
   }
 }
 
@@ -354,24 +384,24 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
         diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.IllegalKeyInListLike))
         break
       case TChunkType.Block:
-        if (!expectingValue) {
-          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedSeparator))
-          // No break, this is recoverable
-        }
-
-        data.push(parseChunksBlock(chunk, diagnostics))
-
-        expectingValue = false
-        expectingSeparator = true
-        justHadSeparator = false
-        break
       case TChunkType.Value:
+      case TChunkType.Enum:
         if (!expectingValue) {
           diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedSeparator))
           // No break, this is recoverable
         }
 
-        data.push(parseChunksValue(chunk.data, chunk.range))
+        switch (chunk.type) {
+          case TChunkType.Block:
+            data.push(parseChunksBlock(chunk, diagnostics))
+            break
+          case TChunkType.Value:
+            data.push(parseChunksValue(chunk.data, chunk.range))
+            break
+          case TChunkType.Enum:
+            data.push(parseChunksEnum(chunk, diagnostics))
+            break
+        }
 
         expectingValue = false
         expectingSeparator = true
@@ -400,7 +430,7 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
   return data
 }
 
-function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker): { value: Record<string, TDataWithPosition>, keyRanges: Record<string, Range> } {
+function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker): { contents: Record<string, TDataWithPosition>, keyRanges: Record<string, Range> } {
   let expectingSeparator = false
   let justHadSeparator = true
   let justHadWeakSeparator = true
@@ -436,6 +466,8 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
         justHadSeparator = false
         break
       case TChunkType.Block:
+      case TChunkType.Value:
+      case TChunkType.Enum:
         if (expectingValueWithKey === null) {
           diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, expectingKey ? IllegalChunkKind.ExpectedKey : IllegalChunkKind.ExpectedSeparator))
           break // NEED key
@@ -444,24 +476,17 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
         if (lastKeyWasDuplicate) {
           // ignore this value if last key was a duplicate
         } else {
-          data[expectingValueWithKey] = parseChunksBlock(chunk, diagnostics)
-        }
-
-        expectingKey = false
-        expectingValueWithKey = null
-        expectingSeparator = true
-        justHadSeparator = false
-        break
-      case TChunkType.Value:
-        if (expectingValueWithKey === null) {
-          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, expectingSeparator ? IllegalChunkKind.ExpectedSeparator : IllegalChunkKind.ExpectedKey))
-          break // NEED key
-        }
-
-        if (lastKeyWasDuplicate) {
-          // ignore this value if last key was a duplicate
-        } else {
-          data[expectingValueWithKey] = parseChunksValue(chunk.data, chunk.range)
+          switch (chunk.type) {
+            case TChunkType.Block:
+              data[expectingValueWithKey] = parseChunksBlock(chunk, diagnostics)
+              break
+            case TChunkType.Value:
+              data[expectingValueWithKey] = parseChunksValue(chunk.data, chunk.range)
+              break
+            case TChunkType.Enum:
+              data[expectingValueWithKey] = parseChunksEnum(chunk, diagnostics)
+              break
+          }
         }
 
         expectingKey = false
@@ -490,33 +515,32 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
   if (!expectingSeparator && !justHadSeparator) {
     diagnostics.add(new UnexpectedEndOfInputParsingDiagnostic(chunks[chunks.length - 1], false))
   }
-  return { value: data, keyRanges }
+  return { contents: data, keyRanges }
 }
 
 function parseChunksValue (data: TValueChunkData, range: Range): TDataWithPosition {
   switch (data[0]) {
     case SingleValueType.Boolean:
-      return { type: TDataType.Boolean, value: data[1], range }
+      return { type: TDataType.Primitive, which: data[0], value: data[1], range }
     case SingleValueType.Int:
-      return { type: TDataType.Int, value: data[1], range }
     case SingleValueType.Float:
-      return { type: TDataType.Float, value: data[1], range }
+      return { type: TDataType.Primitive, which: data[0], value: data[1], range }
     case SingleValueType.String:
-      return { type: TDataType.String, value: data[1], range }
+      return { type: TDataType.Primitive, which: data[0], value: data[1], range }
   }
 }
 
-function parseChunksBlock (chunk: { children: TChunk[], enumKey?: string, kind: BlockType, range: Range }, diagnostics: DiagnosticTracker): TDataWithPosition {
-  const { range, enumKey } = chunk
+function parseChunksBlock (chunk: { children: TChunk[], kind: BlockType, range: Range }, diagnostics: DiagnosticTracker): TDataWithPosition & { type: TDataType.Block } {
+  const { range } = chunk
   switch (chunk.kind) {
     case BlockType.Dict: {
-      const { value, keyRanges } = parseChunksDictLike(chunk.children, diagnostics)
-      return { type: TDataType.Dict, value, keyRanges, range, enumKey }
+      const { contents, keyRanges } = parseChunksDictLike(chunk.children, diagnostics)
+      return { type: TDataType.Block, kind: chunk.kind, contents, keyRanges, range }
     }
     case BlockType.Arr:
-      return { type: TDataType.Arr, value: parseChunksListLike(chunk.children, diagnostics), range, enumKey }
+      return { type: TDataType.Block, kind: chunk.kind, contents: parseChunksListLike(chunk.children, diagnostics), range }
     case BlockType.Tuple:
-      return { type: TDataType.Tuple, value: parseChunksListLike(chunk.children, diagnostics), range, enumKey }
+      return { type: TDataType.Block, kind: chunk.kind, contents: parseChunksListLike(chunk.children, diagnostics), range }
   }
 }
 
@@ -547,14 +571,17 @@ export async function parse (tokens: TToken[], diagnostics: DiagnosticTracker): 
     for (const chunk of chunkified.allChunks) {
       diagnostics.addRaw({
         message: `chunk/${TChunkType[chunk.type]}${({
+          [TChunkType.Enum] (chunk) {
+            return ' ' + chunk.enumKey + '<' + (chunk.children === null ? '~Unit~' : BlockType[chunk.children.kind]) + '>'
+          },
           [TChunkType.Block] (chunk) {
-            return ' [' + BlockType[chunk.kind] + (chunk.enumKey !== undefined ? ` (${chunk.enumKey})` : '') + '] - ' + chunk.children.length.toString() + ' children'
+            return ' [' + BlockType[chunk.kind] + '] - ' + chunk.children.length.toString() + ' children'
           },
           [TChunkType.Key] (chunk) {
             return ` "${chunk.key}"`
           },
           [TChunkType.Value] (chunk) {
-            return ' = (' + SingleValueType[chunk.data[0]] + ') ' + JSON.stringify(chunk.data[1])
+            return ' = (' + SingleValueType[chunk.data[0]] + ') ' + (typeof chunk.data[1] === 'number' ? chunk.data[1].toString() : JSON.stringify(chunk.data[1]))
           },
           [TChunkType.ExpressionSeparator] (_) {
             return ''

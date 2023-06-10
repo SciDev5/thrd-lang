@@ -61,7 +61,10 @@ export type TokenData = ({
   type: TokenType.Invalid
   unknown: boolean
 } | {
-  type: TokenType.PropertyKey | TokenType.EnumKey | TokenType.Newline | TokenType.Ignored
+  type: TokenType.EnumKey
+  isUnit: boolean
+} | {
+  type: TokenType.PropertyKey | TokenType.Newline | TokenType.Ignored
 })
 
 export class TToken {
@@ -116,7 +119,13 @@ export class TToken {
     const switcher = new StringSwitcher(scope)
     try {
       const data = switcher.switch<TokenData>({
-        'support.class.enum.name.': () => ({ type: TokenType.EnumKey }),
+        'support.class.enum.': () => ({
+          type: TokenType.EnumKey,
+          isUnit: switcher.switch({
+            'unit.': () => true,
+            'struct.': () => false,
+          }),
+        }),
         'variable.name.': () => ({ type: TokenType.PropertyKey }),
         'punctuation.separator.': () => ({
           type: TokenType.Separator,

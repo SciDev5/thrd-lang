@@ -1,70 +1,84 @@
 import { type Range } from 'vscode-languageserver'
+import { BlockType, type SingleValueType } from './TToken'
 
 export enum TDataType {
-  String,
-  Boolean,
-  Int,
-  Float,
-  Dict,
-  Arr,
-  Tuple,
+  Primitive,
+  Enum,
+  Block,
 }
 
-export type TData = {
-  type: TDataType.String
-  value: string
-} | {
-  type: TDataType.Boolean
+export type TData = ({
+  type: TDataType.Primitive
+} & ({
+  which: SingleValueType.Boolean
   value: boolean
 } | {
-  type: TDataType.Float | TDataType.Int
+  which: SingleValueType.String
+  value: string
+} | {
+  which: SingleValueType.Int | SingleValueType.Float
   value: number
-} | {
-  type: TDataType.Dict
-  value: Record<string, TData>
-  enumKey?: string
-} | {
-  type: TDataType.Arr | TDataType.Tuple
-  value: TData[]
-  enumKey?: string
+})) | ({
+  type: TDataType.Block
+} & BlockData) | {
+  type: TDataType.Enum
+  enumKey: string
+  contents?: BlockData
 }
 
-export type TDataWithPosition = ({
-  type: TDataType.String
-  value: string
+export type BlockData = {
+  kind: BlockType.Dict
+  contents: Record<string, TData>
 } | {
-  type: TDataType.Boolean
+  kind: BlockType.Arr | BlockType.Tuple
+  contents: TData[]
+}
+
+export type TDataWithPosition = (({
+  type: TDataType.Primitive
+} & ({
+  which: SingleValueType.Boolean
   value: boolean
 } | {
-  type: TDataType.Float | TDataType.Int
+  which: SingleValueType.String
+  value: string
+} | {
+  which: SingleValueType.Int | SingleValueType.Float
   value: number
-} | {
-  type: TDataType.Dict
-  keyRanges: Record<string, Range>
-  value: Record<string, TDataWithPosition>
-  enumKey?: string
-} | {
-  type: TDataType.Arr | TDataType.Tuple
-  value: TDataWithPosition[]
-  enumKey?: string
+})) | ({
+  type: TDataType.Block
+} & BlockDataWithPosition) | {
+  type: TDataType.Enum
+  enumKey: string
+  contents?: BlockDataWithPosition & { range: Range }
 }) & { range: Range }
+
+export type BlockDataWithPosition = {
+  kind: BlockType.Dict
+  contents: Record<string, TDataWithPosition>
+  keyRanges: Record<string, Range>
+} | {
+  kind: BlockType.Arr | BlockType.Tuple
+  contents: TDataWithPosition[]
+}
+
+function stripPositionInfoFromBlockData (data: BlockDataWithPosition): BlockData {
+  switch (data.kind) {
+    case BlockType.Dict:
+      return { kind: data.kind, contents: Object.fromEntries(Object.entries(data.contents).map(([k, v]) => [k, stripPositionInfoFromData(v)])) }
+    case BlockType.Arr:
+    case BlockType.Tuple:
+      return { kind: data.kind, contents: data.contents.map(v => stripPositionInfoFromData(v)) }
+  }
+}
 
 export function stripPositionInfoFromData (data: TDataWithPosition): TData {
   switch (data.type) {
-    case TDataType.String:
-    case TDataType.Int:
-    case TDataType.Float:
-    case TDataType.Boolean: {
-      const data_: TData & { range?: Range, keyRanges?: Record<string, Range> } = { ...data }
-      delete data_.range
-      delete data_.keyRanges
-      return data_
-    }
-
-    case TDataType.Dict:
-      return { type: data.type, value: Object.fromEntries(Object.entries(data.value).map(([k, v]) => [k, stripPositionInfoFromData(v)])) }
-    case TDataType.Arr:
-    case TDataType.Tuple:
-      return { type: data.type, value: data.value.map(v => stripPositionInfoFromData(v)) }
+    case TDataType.Primitive:
+      return { type: TDataType.Primitive, which: data.which, value: data.value as any }
+    case TDataType.Block:
+      return { type: TDataType.Block, ...stripPositionInfoFromBlockData(data) }
+    case TDataType.Enum:
+      return { type: TDataType.Enum, enumKey: data.enumKey, contents: data.contents !== undefined ? stripPositionInfoFromBlockData(data.contents) : undefined }
   }
 }
