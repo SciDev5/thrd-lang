@@ -1,7 +1,7 @@
 import { DiagnosticSeverity, TextEdit, type Position, type Range } from 'vscode-languageserver'
 import { type TParsedDoc } from '../TDocument'
-import { TDataType, type BlockDataWithPosition, type TDataWithPosition } from '../parsing/TData'
-import { BlockType, TokenType } from '../parsing/TToken'
+import { TDataType, blockDataChildren, type BlockDataWithPosition, type TDataWithPosition } from '../parsing/TData'
+import { TokenType } from '../parsing/TToken'
 import { IMPOSSIBLE } from '../util/THROW'
 import { contractRange, positionIsInRange, type TokenRange } from '../util/range'
 import { TDiagnostic, type DiagnosticTracker } from './DiagnosticTracker'
@@ -106,7 +106,7 @@ function findDataBlockDepth (data: TDataWithPosition, pos: Position): number {
 }
 function findBlockBlockDepth (data: BlockDataWithPosition, pos: Position, contentRange: Range): number {
   if (!positionIsInRange(pos, contractRange(contentRange, 1))) return 0
-  const children = data.kind === BlockType.Dict ? Object.values(data.contents) : data.contents
+  const children = blockDataChildren(data)
   return 1 + Math.max(...children.map(elt => findDataBlockDepth(elt, pos)))
 }
 
@@ -264,8 +264,7 @@ function paddingWhitespaceLint_recursiveBlock (doc: TParsedDoc, data: BlockDataW
     //
   }
 
-  const contents = data.kind === BlockType.Dict ? Object.values(data.contents) : data.contents
-  for (const elt of contents) {
+  for (const elt of blockDataChildren(data)) {
     paddingWhitespaceLint_recursive(doc, elt, diagnostics)
   }
 }

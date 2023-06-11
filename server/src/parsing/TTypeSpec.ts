@@ -23,7 +23,7 @@ export type TTypeSpec = {
 
 export type TTypeEnumSpec = Record<string, BlockTypeSpec | null>
 
-type BlockTypeSpec = {
+export type BlockTypeSpec = {
   kind: BlockType.Dict
   contents: Record<string, TTypeSpec>
 } | {
@@ -59,7 +59,7 @@ function blockTypeKindName (type: BlockType): string {
   } satisfies { [T in BlockType]: string })[type]
 }
 
-function typeName (type: TTypeSpec): string {
+export function typeName (type: TTypeSpec): string {
   switch (type.type) {
     case TTypeSpecType.Enum:
       return Object.keys(type.enumSpec).join(' | ')

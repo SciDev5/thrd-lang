@@ -1,0 +1,307 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "THRD - hover highlighting config",
+	"scopeName": "source.thrdtypes",
+	"patterns": [
+		{
+			"include": "#typespec-key"
+		},
+		{
+			"include": "#expression"
+		}
+	],
+	"repository": {
+		"expression": {
+			"patterns": [
+				{
+					"include": "#property-key"
+				},
+				{
+					"include": "#expression-separator"
+				},
+				{
+					"include": "#primitive"
+				},
+				{
+					"include": "#blocks"
+				},
+				{
+					"include": "#unit-enum"
+				},
+				{
+					"include": "#non-coding"
+				}
+			]
+		},
+		"property-key": {
+			"match": "\\b(\\w+)\\s*(:)",
+			"captures": {
+				"1": {
+					"name": "variable.name.thrd"
+				},
+				"2": {
+					"name": "punctuation.separator.keyValue.thrd"
+				}
+			}
+		},
+		"expression-separator": {
+			"match": ",",
+			"name": "punctuation.separator.list.thrd"
+		},
+
+		"typespec-key": {
+			"match": "(TYPEOF)((.*?)):",
+			"captures": {
+				"1": {
+					"name": "constant.language"
+				},
+				"2": {
+					"patterns": [
+						{
+							"comment": "Property index",
+							"match": "\\.(\\w+)",
+							"captures": {
+								"1": {
+									"name": "variable.name"
+								}
+							}
+						},
+						{
+							"comment": "Array/Tuple index",
+							"match": "\\[(\\d+)?]",
+							"captures": {
+								"1": {
+									"name": "constant.numeric"
+								}
+							}
+						},
+						{
+							"comment": "Enum index",
+							"match": "\\#\\w+",
+							"name": "support.class.enum"
+						},
+						{
+							"comment": "Root",
+							"match": "<~>",
+							"name": "constant.language"
+						}
+					]
+				}
+			}
+		},
+
+		"unit-enum": {
+			"match": "#\\w+",
+			"captures": {
+				"0": {
+					"name": "support.class.enum.unit.thrd"
+				}
+			}
+		},
+		"blocks": {
+			"patterns": [
+				{
+					"name": "meta.block.dict.thrd",
+					"begin": "(#\\w+)?(\\s*)(\\{)",
+					"beginCaptures": {
+						"1": {
+							"name": "support.class.enum.struct.thrd"
+						},
+						"2": {
+							"name": "whitespace.thrd"
+						},
+						"3": {
+							"name": "punctuation.block.begin.dict.thrd"
+						}
+					},
+					"end": "\\}",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.block.end.dict.thrd"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#expression"
+						}
+					]
+				},
+				{
+					"name": "meta.block.arr.thrd",
+					"begin": "(#\\w+)?(\\s*)(\\[)",
+					"beginCaptures": {
+						"1": {
+							"name": "support.class.enum.struct.thrd"
+						},
+						"2": {
+							"name": "whitespace.thrd"
+						},
+						"3": {
+							"name": "punctuation.block.begin.arr.thrd"
+						}
+					},
+					"end": "\\]",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.block.end.arr.thrd"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#expression"
+						}
+					]
+				},
+				{
+					"name": "meta.block.tuple.thrd",
+					"begin": "(#\\w+)?(\\s*)(\\()",
+					"beginCaptures": {
+						"1": {
+							"name": "support.class.enum.struct.thrd"
+						},
+						"2": {
+							"name": "whitespace.thrd"
+						},
+						"3": {
+							"name": "punctuation.block.begin.tuple.thrd"
+						}
+					},
+					"end": "\\)",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.block.end.tuple.thrd"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#expression"
+						}
+					]
+				}
+			]
+		},
+		
+		"primitive": {
+			"patterns": [
+				{
+					"include": "#boolean"
+				},
+				{
+					"include": "#float"
+				},
+				{
+					"include": "#integer"
+				},
+				{
+					"include": "#string"
+				}
+			]
+		},
+		"boolean": {
+			"name": "constant.language.boolean.thrd",
+			"match": "\\b(true|false)\\b"
+		},
+		"integer": {
+			"name": "constant.numeric.integer.thrd",
+			"match": "-?(\\d([\\d_]*\\d)?)\\b"
+		},
+		"float": {
+			"name": "constant.numeric.float.thrd",
+			"comment": "-?((\\d*|\\d[\\d_]*\\d)\\.\\d([\\d_]*\\d)?([eE][+-]\\d+)?|Infinity|PI|E|TAO)\\b",
+			"match": "-?(\\d*|\\d[\\d_]*\\d)\\.\\d([\\d_]*\\d)?([eE][+-]\\d+)?\\b"
+		},
+		"string": {
+			"patterns": [
+				{
+					"include": "#string-doublequote"
+				},
+				{
+					"include": "#string-multiline"
+				}
+			]
+		},
+		"string-doublequote": {
+			"name": "string.inline.thrd",
+			"begin": "\"",
+			"end": "(\")|((?:[^\\\\\\n])$)",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.string.begin.thrd"
+				}
+			},
+			"endCaptures": {
+				"1": {
+					"name": "punctuation.string.end.thrd"
+				},
+				"2": {
+					"name": "invalid.illegal.newline.thrd"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#escape-string"
+				}
+			]
+		},
+		"string-multiline": {
+			"name": "string.multiline.thrd",
+			"begin": "`",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.string.begin.thrd"
+				}
+			},
+			"end": "`",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.string.end.thrd"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#escape-string"
+				}
+			]
+		},
+		"escape-string": {
+			"name": "constant.character.escape.string.thrd",
+			"match": "\\\\(?:\\\\|[nr]|x[0-f0-F]{2}|u[0-f0-F]{4}|\\r?$)"
+		},
+
+		"non-coding": {
+			"patterns": [
+				{
+					"include": "#comments"
+				},
+				{
+					"include": "#whitespaces"
+				},
+				{
+					"include": "#invalids"
+				}
+			]
+		},
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment.line.double-slash.thrd",
+					"begin": "//",
+					"end": "\\n"
+				},
+				{
+					"name": "comment.block.thrd",
+					"begin": "/\\*",
+					"end": "\\*/"
+				}
+			]
+		},
+		"whitespaces": {
+			"match": "\\s+",
+			"name": "whitespace.thrd"
+		},
+		"invalids": {
+			"match": "\\S+\\b|\\S+",
+			"name": "invalid.illegal.thrd"
+		}
+	}
+}

@@ -1,4 +1,4 @@
-import { CodeAction, CodeActionKind, TextDocuments, type Connection } from 'vscode-languageserver'
+import { CodeAction, CodeActionKind, TextDocuments, type Connection, type Position } from 'vscode-languageserver'
 import { TextDocument } from 'vscode-languageserver-textdocument'
 import { TEST_TYPE } from './TEST_TYPE'
 import { capabilities } from './capabilities'
@@ -9,6 +9,7 @@ import { TToken } from './parsing/TToken'
 import { lintingTypeCheck, type TTypeSpec } from './parsing/TTypeSpec'
 import { parse } from './parsing/parse'
 import { globalSettings, type THRDServerSettings } from './settings'
+import { positionIsInRange } from './util/range'
 
 const documents = new TextDocuments(TextDocument)
 let connection: Connection
@@ -29,16 +30,24 @@ export function bindDocuments (connectionToBind: Connection): void {
 
 export type Lines = string[]
 export class TParsedDoc {
+  readonly typeDiagnostics = new DiagnosticTracker()
   constructor (
     readonly lines: Lines,
     readonly tokens: TToken[],
     readonly data: TDataWithPosition,
-  ) {}
+    readonly typeSpec: TTypeSpec,
+  ) {
+    lintingTypeCheck(this.data, typeSpec, this.typeDiagnostics)
+  }
 
-  lintingTypeCheck (typeSpec: TTypeSpec): DiagnosticTracker {
-    const diagnostics = new DiagnosticTracker()
-    lintingTypeCheck(this.data, typeSpec, diagnostics)
-    return diagnostics
+  tokenAt (pos: Position): number {
+    let tokenI = 0
+    for (; tokenI < this.tokens.length - 1; tokenI++) {
+      if (positionIsInRange(pos, this.tokens[tokenI].range)) {
+        break
+      }
+    }
+    return tokenI
   }
 }
 
@@ -75,6 +84,7 @@ export class TDocument {
   }
 
   private parsed: Promise<[TParsedDoc | null, DiagnosticTracker]>
+  private parsedResolved: TParsedDoc | null = null
   private allDiagnostics = new DiagnosticTracker()
   private async parse (): Promise<[TParsedDoc | null, DiagnosticTracker]> {
     const syntaxDiagnosticTracker = new DiagnosticTracker()
@@ -83,10 +93,13 @@ export class TDocument {
     const tokens = await TToken.lex(lines)
     const data = await parse(tokens, syntaxDiagnosticTracker)
 
+    const doc = data !== null
+      ? new TParsedDoc(lines, tokens, data, TEST_TYPE)
+      : null
+
+    this.parsedResolved = doc
     return [
-      data !== null
-        ? new TParsedDoc(lines, tokens, data)
-        : null,
+      doc,
       syntaxDiagnosticTracker,
     ]
   }
@@ -121,8 +134,7 @@ export class TDocument {
     console.log('H', parsedDoc !== null)
 
     if (parsedDoc !== null) {
-      const typeDiagnostics = parsedDoc.lintingTypeCheck(TEST_TYPE)
-      diagnostics.mergeIn(typeDiagnostics)
+      diagnostics.mergeIn(parsedDoc.typeDiagnostics)
 
       whitespaceLint(parsedDoc, diagnostics)
     }
@@ -140,5 +152,14 @@ export class TDocument {
         [this.document.uri]: this.allDiagnostics.collectAutoFixes(),
       },
     }, CodeActionKind.SourceFixAll)
+  }
+
+  /**
+   * Get the parsed data for this document.
+   *
+   * @returns The `TParsedDoc`, or `null` if the document hasn't loaded or is invalid.
+   */
+  getParsedDoc (): TParsedDoc | null {
+    return this.parsedResolved
   }
 }

@@ -17,6 +17,7 @@ import {
 import { bindDocuments } from './TDocument'
 import { handleOnCodeAction } from './actions/handleOnCodeAction'
 import { capabilities, computeCapabilities } from './capabilities'
+import { handleOnHover } from './hover/handleOnHover'
 import { bindSettings } from './settings'
 
 const connection = createConnection(ProposedFeatures.all)
@@ -30,6 +31,7 @@ connection.onInitialize((params: InitializeParams) => {
       workspace: capabilities.workspaceFolder ? { workspaceFolders: { supported: true } } : undefined,
       completionProvider: { resolveProvider: true },
       codeActionProvider: { codeActionKinds: [CodeActionKind.SourceFixAll, CodeActionKind.Refactor] },
+      hoverProvider: { },
       positionEncoding: PositionEncodingKind.UTF16,
     },
   }
@@ -82,6 +84,7 @@ connection.onCompletionResolve((item: CompletionItem) => {
 })
 
 connection.onCodeAction(handleOnCodeAction)
+connection.onHover(handleOnHover)
 
 connection.onDidChangeWatchedFiles(_change => {
   connection.console.log('config file update')

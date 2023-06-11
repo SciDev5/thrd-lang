@@ -83,3 +83,20 @@ export function stripPositionInfoFromData (data: TDataWithPosition): TData {
       return { type: TDataType.Enum, enumKey: data.enumKey, contents: data.contents !== undefined ? stripPositionInfoFromBlockData(data.contents) : undefined }
   }
 }
+
+export function blockDataChildren (data: BlockDataWithPosition): TDataWithPosition[] {
+  return data.kind === BlockType.Dict
+    ? Object.values(data.contents)
+    : data.contents
+}
+
+export function blockDataChildrenWithKey (data: BlockDataWithPosition):
+Array<[{ kind: BlockType.Dict, key: string }, TDataWithPosition]> |
+Array<[{ kind: BlockType.Tuple, i: number }, TDataWithPosition]> |
+Array<[{ kind: BlockType.Arr }, TDataWithPosition]> {
+  return data.kind === BlockType.Dict
+    ? Object.entries(data.contents).map(([key, v]) => [{ kind: BlockType.Dict, key }, v])
+    : data.kind === BlockType.Arr
+      ? data.contents.map(v => [{ kind: BlockType.Arr }, v])
+      : data.contents.map((v, i) => [{ kind: BlockType.Tuple, i }, v])
+}

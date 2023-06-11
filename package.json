@@ -23,6 +23,14 @@
           ".thrdspec"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "thrdtypes",
+        "aliases": [
+          "THRD Hover"
+        ],
+        "extensions": [],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -30,6 +38,11 @@
         "language": "thrd",
         "scopeName": "source.thrd",
         "path": "./syntaxes/thrd.tmLanguage.json"
+      },
+      {
+        "language": "thrdtypes",
+        "scopeName": "source.thrdtypes",
+        "path": "./syntaxes/thrdtypes.tmLanguage.json"
       }
     ],
 		"configuration": {
