@@ -1,21 +1,23 @@
 import {
+  CodeActionKind,
   CompletionItemKind,
-  createConnection,
   DidChangeConfigurationNotification,
   MarkupKind,
   PositionEncodingKind,
   ProposedFeatures,
   TextDocumentSyncKind,
   TextEdit,
+  createConnection,
   type CompletionItem,
   type CompletionParams,
   type InitializeParams,
   type InitializeResult,
 } from 'vscode-languageserver/node'
 
+import { bindDocuments } from './TDocument'
+import { handleOnCodeAction } from './actions/handleOnCodeAction'
 import { capabilities, computeCapabilities } from './capabilities'
 import { bindSettings } from './settings'
-import { bindDocuments } from './TDocument'
 
 const connection = createConnection(ProposedFeatures.all)
 
@@ -27,6 +29,7 @@ connection.onInitialize((params: InitializeParams) => {
       textDocumentSync: TextDocumentSyncKind.Incremental,
       workspace: capabilities.workspaceFolder ? { workspaceFolders: { supported: true } } : undefined,
       completionProvider: { resolveProvider: true },
+      codeActionProvider: { codeActionKinds: [CodeActionKind.SourceFixAll, CodeActionKind.Refactor] },
       positionEncoding: PositionEncodingKind.UTF16,
     },
   }
@@ -77,6 +80,8 @@ connection.onCompletionResolve((item: CompletionItem) => {
 
   return item
 })
+
+connection.onCodeAction(handleOnCodeAction)
 
 connection.onDidChangeWatchedFiles(_change => {
   connection.console.log('config file update')

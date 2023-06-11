@@ -1,7 +1,7 @@
 import { type Range } from 'vscode-languageserver'
+import { TDiagnostic, type DiagnosticTracker } from '../linting/DiagnosticTracker'
 import { IMPOSSIBLE } from '../util/THROW'
 import { setAnd, setXOR } from '../util/set'
-import { TDiagnostic, type DiagnosticTracker } from './DiagnosticTracker'
 import { TDataType, type TDataWithPosition } from './TData'
 import { BlockType, SingleValueType } from './TToken'
 
@@ -332,7 +332,7 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
             ))
             return false
           } else {
-            return lintingTypeCheck({ type: TDataType.Block, ...contents }, { type: TTypeSpecType.Block, ...enumSpec }, diagnostics)
+            return lintingTypeCheck({ type: TDataType.Block, ...contents, tokenRange: data.tokenRange }, { type: TTypeSpecType.Block, ...enumSpec }, diagnostics)
           }
         }
       } else if (type.type === TTypeSpecType.Block && data.contents !== undefined) {

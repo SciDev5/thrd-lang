@@ -1,13 +1,14 @@
-import { TextDocuments, type Connection } from 'vscode-languageserver'
+import { CodeAction, CodeActionKind, TextDocuments, type Connection } from 'vscode-languageserver'
 import { TextDocument } from 'vscode-languageserver-textdocument'
+import { TEST_TYPE } from './TEST_TYPE'
 import { capabilities } from './capabilities'
-import { DiagnosticTracker } from './parsing/DiagnosticTracker'
+import { DiagnosticTracker } from './linting/DiagnosticTracker'
+import { whitespaceLint } from './linting/whitespaceLint'
 import { type TDataWithPosition } from './parsing/TData'
 import { TToken } from './parsing/TToken'
 import { lintingTypeCheck, type TTypeSpec } from './parsing/TTypeSpec'
 import { parse } from './parsing/parse'
 import { globalSettings, type THRDServerSettings } from './settings'
-import { TEST_TYPE } from './TEST_TYPE'
 
 const documents = new TextDocuments(TextDocument)
 let connection: Connection
@@ -52,6 +53,10 @@ export class TDocument {
     return this.open.get(document.uri) ?? new TDocument(document)
   }
 
+  static getByUri (uri: string): TDocument | null {
+    return this.open.get(uri) ?? null
+  }
+
   static all (): TDocument[] {
     return [...this.open.values()]
   }
@@ -70,6 +75,7 @@ export class TDocument {
   }
 
   private parsed: Promise<[TParsedDoc | null, DiagnosticTracker]>
+  private allDiagnostics = new DiagnosticTracker()
   private async parse (): Promise<[TParsedDoc | null, DiagnosticTracker]> {
     const syntaxDiagnosticTracker = new DiagnosticTracker()
 
@@ -110,16 +116,29 @@ export class TDocument {
     const [parsedDoc, syntaxDiagnostics] = await this.parsed
     diagnostics.mergeIn(syntaxDiagnostics)
 
-    console.log('DOC', parsedDoc)
+    // console.log('DOC', parsedDoc)
+
+    console.log('H', parsedDoc !== null)
 
     if (parsedDoc !== null) {
       const typeDiagnostics = parsedDoc.lintingTypeCheck(TEST_TYPE)
       diagnostics.mergeIn(typeDiagnostics)
+
+      whitespaceLint(parsedDoc, diagnostics)
     }
 
+    this.allDiagnostics = diagnostics
     await connection.sendDiagnostics({
       uri: this.document.uri,
-      diagnostics: diagnostics.diagnostics,
+      diagnostics: diagnostics.collectDiagnostcis(),
     })
+  }
+
+  generateSourceFixAllCodeAction (): CodeAction {
+    return CodeAction.create('Fix all auto-fixable issues', {
+      changes: {
+        [this.document.uri]: this.allDiagnostics.collectAutoFixes(),
+      },
+    }, CodeActionKind.SourceFixAll)
   }
 }

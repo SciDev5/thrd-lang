@@ -1,4 +1,5 @@
 import { type Range } from 'vscode-languageserver'
+import { type TokenRange } from '../util/range'
 import { BlockType, type SingleValueType } from './TToken'
 
 export enum TDataType {
@@ -50,8 +51,8 @@ export type TDataWithPosition = (({
 } & BlockDataWithPosition) | {
   type: TDataType.Enum
   enumKey: string
-  contents?: BlockDataWithPosition & { range: Range }
-}) & { range: Range }
+  contents?: BlockDataWithPosition & { range: Range, tokenRange: TokenRange }
+}) & { range: Range, tokenRange: TokenRange }
 
 export type BlockDataWithPosition = {
   kind: BlockType.Dict

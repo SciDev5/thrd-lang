@@ -1,9 +1,9 @@
-import { DiagnosticSeverity, type Range } from 'vscode-languageserver'
+import { DiagnosticSeverity, TextEdit, type Range } from 'vscode-languageserver'
 import { DEBUG_CONSTANTS } from '../DEBUG_CONSTANTS'
+import { TDiagnostic, type DiagnosticTracker } from '../linting/DiagnosticTracker'
 import { Stack } from '../util/Stack'
 import { IMPOSSIBLE } from '../util/THROW'
-import { combineRanges } from '../util/range'
-import { TDiagnostic, type DiagnosticTracker } from './DiagnosticTracker'
+import { combineRanges, tokenRangeSingle, type TokenRange } from '../util/range'
 import { TDataType, stripPositionInfoFromData, type TDataWithPosition } from './TData'
 import { BlockType, PrimitiveValueType, SeparatorType, Side, SingleValueType, TokenType, type TToken } from './TToken'
 
@@ -65,6 +65,7 @@ export enum TChunkType {
   Key,
   Value,
   Enum,
+  Comment,
   /** These are the commas */
   ExpressionSeparator,
 }
@@ -73,6 +74,9 @@ export type TChunk = ({
   type: TChunkType.Block
   kind: BlockType
   children: TChunk[]
+} | {
+  type: TChunkType.Comment
+  isBlockComment: boolean
 } | {
   type: TChunkType.Enum
   enumKey: string
@@ -86,7 +90,7 @@ export type TChunk = ({
 } | {
   type: TChunkType.ExpressionSeparator
   weak: boolean
-}) & { range: Range }
+}) & { range: Range, tokenRange: TokenRange }
 
 type TValueChunkData = (
   [SingleValueType.Boolean, boolean]
@@ -99,6 +103,7 @@ interface TBlockChunk {
   kind?: BlockType
   children: TChunk[]
   range: Range
+  tokenRange: TokenRange
   token?: TToken
 }
 
@@ -107,20 +112,22 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
   const globalBlock: TBlockChunk = {
     type: TChunkType.Block,
     children: [],
+    tokenRange: { start: 0, end: 0 },
     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
   }
   function pushChunk (chunk: TChunk): void {
-    chunkStack.top.children.push(chunk)
+    chunkStack.top[0].children.push(chunk)
     allChunks.push(chunk)
   }
-  const chunkStack = new Stack<TBlockChunk>()
-  chunkStack.push(globalBlock)
+  const chunkStack = new Stack<[TBlockChunk, TChunk] | [TBlockChunk]>()
+  chunkStack.push([globalBlock])
 
-  let enumKey: TToken | undefined
+  let enumKey: { token: TToken, i: number } | undefined
 
   let canInsertWeakSeparator = false
 
   for (let i = 0; ;) {
+    const startI = i
     const token = tokens[i++] ?? null
 
     if (token === null) {
@@ -132,25 +139,27 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
       case TokenType.Invalid:
         diagnostics.add(new InvalidTokenDiagnostic(token))
         break
-      case TokenType.Ignored:
-        // ignore, obviously
+      case TokenType.Whitespace:
+        // ignore
+        break
+      case TokenType.Comment:
+        pushChunk({ type: TChunkType.Comment, isBlockComment: token.data.isBlockComment, range: token.range, tokenRange: tokenRangeSingle(startI) })
         break
       case TokenType.Newline:
         if (canInsertWeakSeparator) {
-          pushChunk({ type: TChunkType.ExpressionSeparator, range: token.range, weak: true })
+          pushChunk({ type: TChunkType.ExpressionSeparator, range: token.range, weak: true, tokenRange: tokenRangeSingle(startI) })
           canInsertWeakSeparator = false
         }
         break
       case TokenType.Separator:
         switch (token.data.separator) {
           case SeparatorType.List:
-            pushChunk({ type: TChunkType.ExpressionSeparator, range: token.range, weak: false })
-            canInsertWeakSeparator = false
+            pushChunk({ type: TChunkType.ExpressionSeparator, range: token.range, weak: false, tokenRange: tokenRangeSingle(startI) })
+            canInsertWeakSeparator = true
             break
           case SeparatorType.KeyValue:
             // Should be absorbed by `PropertyKey` token parsing
             IMPOSSIBLE()
-            break
         }
         break
       case TokenType.PrimitiveData: {
@@ -170,13 +179,13 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
             data = [SingleValueType.Float, parseFloat(token.text.replace(/_/g, ''))]
             break
         }
-        pushChunk({ type: TChunkType.Value, data, range: token.range })
+        pushChunk({ type: TChunkType.Value, data, range: token.range, tokenRange: tokenRangeSingle(startI) })
         canInsertWeakSeparator = true
       }
         break
       case TokenType.PropertyKey: {
         const keyValueSeparatorToken = tokens[i++] // the `:`
-        pushChunk({ type: TChunkType.Key, key: token.text, range: combineRanges(token.range, keyValueSeparatorToken.range) })
+        pushChunk({ type: TChunkType.Key, key: token.text, range: combineRanges(token.range, keyValueSeparatorToken.range), tokenRange: { start: i, end: i + 2 } })
         canInsertWeakSeparator = false
       }
         break
@@ -229,7 +238,7 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
               IMPOSSIBLE()
           }
         }
-        pushChunk({ type: TChunkType.Value, data: [SingleValueType.String, builtString], range: combineRanges(token.range, ...involvedTokens.map(v => v.range)) })
+        pushChunk({ type: TChunkType.Value, data: [SingleValueType.String, builtString], range: combineRanges(token.range, ...involvedTokens.map(v => v.range)), tokenRange: { start: i, end: i + 1 + involvedTokens.length } })
         canInsertWeakSeparator = true
       }
         break
@@ -239,40 +248,43 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
         break
       case TokenType.EnumKey:
         if (token.data.isUnit) {
-          pushChunk({ type: TChunkType.Enum, enumKey: token.text.substring(1), range: token.range, children: null })
+          pushChunk({ type: TChunkType.Enum, enumKey: token.text.substring(1), range: token.range, children: null, tokenRange: tokenRangeSingle(startI) })
           enumKey = undefined
           canInsertWeakSeparator = true
         } else {
-          enumKey = token
+          enumKey = { token, i: startI }
           canInsertWeakSeparator = false
         }
         break
       case TokenType.BlockBoundary:
         switch (token.data.side) {
           case Side.Begin: {
-            const chunk: TChunk & TBlockChunk = { type: TChunkType.Block, kind: token.data.kind, range: token.range, children: [], token }
+            const chunk: TChunk & TBlockChunk = { type: TChunkType.Block, kind: token.data.kind, range: token.range, children: [], token, tokenRange: tokenRangeSingle(startI) }
             if (enumKey !== undefined) {
-              pushChunk({
+              const enumChunk = {
                 type: TChunkType.Enum,
                 children: chunk,
-                enumKey: enumKey.text.substring(1),
-                range: combineRanges(enumKey.range, chunk.range),
-              })
+                enumKey: enumKey.token.text.substring(1),
+                range: enumKey.token.range,
+                tokenRange: tokenRangeSingle(enumKey.i),
+              } satisfies TChunk
+              pushChunk(enumChunk)
+              chunkStack.push([chunk, enumChunk])
             } else {
               pushChunk(chunk)
+              chunkStack.push([chunk])
             }
             enumKey = undefined
             canInsertWeakSeparator = false
-            chunkStack.push(chunk)
           }
             break
           case Side.End: {
             let nFramesToPop = 1
-            if (chunkStack.top.kind !== token.data.kind) {
+            if (chunkStack.top[0].kind !== token.data.kind) {
               // stack top will always have token when `BlockBoundary/End` because TextMate only
               // captures more beginnings than ends never the other way around
 
-              const openToken = chunkStack.top.token ?? IMPOSSIBLE()
+              const openToken = chunkStack.top[0].token ?? IMPOSSIBLE()
               /** Number of layers of blocks skipped in the mismatch */
               const missingFrames = openToken.depth - token.depth
               nFramesToPop += missingFrames
@@ -281,12 +293,16 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
             }
 
             for (let n = 0; n < nFramesToPop; n++) {
-              if (!DEBUG_CONSTANTS.SHOW_CHUNKS_AS_INFO_DIAGNOSTICS) {
-                // Shrink the range of block chunks to make their innards visible
-                chunkStack.top.range = combineRanges(chunkStack.top.range, token.range)
+              // update the end positions of popped stack frames because we now know where that end is
+              const top = chunkStack.top
+              top[0].range = combineRanges(top[0].range, token.range)
+              top[0].tokenRange.end = startI + 1
+              if (top.length === 2) {
+                top[1].range = combineRanges(top[1].range, token.range)
+                top[1].tokenRange.end = startI + 1
               }
               const frame = chunkStack.pop()
-              delete frame.token
+              delete frame[0].token
             }
             canInsertWeakSeparator = true
           }
@@ -296,7 +312,7 @@ function chunkify (tokens: TToken[], diagnostics: DiagnosticTracker): { chunks: 
     }
   }
 
-  if (chunkStack.top !== globalBlock) {
+  if (chunkStack.top[0] !== globalBlock) {
     // not all blocks were closed
     diagnostics.add(new UnexpectedEndOfInputChunkifyDiagnostic(tokens))
   }
@@ -310,10 +326,17 @@ enum IllegalChunkKind {
   ExpectedValue,
   IllegalKeyInListLike,
 }
+enum IllegalChunkAutoFixType {
+  None,
+  AddCommaBefore,
+  Delete,
+}
 class InvalidIllegalChunkDiagnostic extends TDiagnostic {
   constructor (
     chunk: TChunk,
     kind: IllegalChunkKind,
+    prevChunk: TChunk | undefined,
+    autoFix: IllegalChunkAutoFixType,
   ) {
     super({
       message: ({
@@ -323,6 +346,18 @@ class InvalidIllegalChunkDiagnostic extends TDiagnostic {
         [IllegalChunkKind.IllegalKeyInListLike]: 'Arrays and tuples do not accept property keys.',
       } satisfies { [key in IllegalChunkKind]: string })[kind],
       range: chunk.range,
+    }, {
+      autoFix: ({
+        [IllegalChunkAutoFixType.None]: undefined,
+        [IllegalChunkAutoFixType.AddCommaBefore]: prevChunk !== undefined
+          ? (prevChunk.range.end.line === chunk.range.start.line
+              ? TextEdit.replace({ start: prevChunk.range.end, end: chunk.range.start }, ', ')
+              : TextEdit.insert(prevChunk.range.end, ',')
+            )
+          : TextEdit.insert(chunk.range.start, ','),
+        [IllegalChunkAutoFixType.Delete]: TextEdit.del(chunk.range),
+      } satisfies { [T in IllegalChunkAutoFixType]: TextEdit | undefined })[autoFix],
+
     })
   }
 }
@@ -349,6 +384,65 @@ class DuplicatePropertyKeyParsingDiagnostic extends TDiagnostic {
   }
 }
 
+class UnnecessaryCommaWarningParsingDiagnostic extends TDiagnostic {
+  constructor (
+    chunk: TChunk,
+  ) {
+    super({
+      message: 'Unnecessary comma',
+      range: chunk.range,
+      severity: DiagnosticSeverity.Warning,
+    }, {
+      autoFix: TextEdit.del(chunk.range),
+    })
+  }
+
+  static runCheck (chunk: TChunk & { type: TChunkType.ExpressionSeparator }, chunkI: number, chunks: TChunk[], diagnostics: DiagnosticTracker): void {
+    if (chunk.weak) return
+    // Prefer newline to comma
+    let foundWeakSep = false
+    let foundEndOfInput = true
+    let foundStartOfInput = true
+    // For loops to skip over possible illegal commas
+    for (let i = chunkI + 1; i < chunks.length; i++) {
+      // See if there's a weak separator next
+      const nextChunk = chunks[i]
+      if (nextChunk.type === TChunkType.Comment) {
+        // ignore
+      } else if (nextChunk.type === TChunkType.ExpressionSeparator) {
+        if (nextChunk.weak) {
+          foundWeakSep = true
+          break
+        }
+      } else {
+        foundEndOfInput = false
+        break
+      }
+    }
+    for (let i = chunkI - 1; i >= 0; i--) {
+      // See if there's a weak separator previously
+      const nextChunk = chunks[i]
+      if (nextChunk.type === TChunkType.Comment) {
+        // ignore
+      } else if (nextChunk.type === TChunkType.ExpressionSeparator) {
+        if (nextChunk.weak) {
+          foundWeakSep = true
+          break
+        }
+      } else {
+        foundStartOfInput = false
+        break
+      }
+    }
+    if (foundWeakSep || foundEndOfInput || foundStartOfInput) {
+      // This comma is unnecessary
+      diagnostics.add(new UnnecessaryCommaWarningParsingDiagnostic(
+        chunk,
+      ))
+    }
+  }
+}
+
 function parseChunkTopLevel (chunk: TChunk, diagnostics: DiagnosticTracker): TDataWithPosition {
   switch (chunk.type) {
     case TChunkType.Block:
@@ -356,9 +450,10 @@ function parseChunkTopLevel (chunk: TChunk, diagnostics: DiagnosticTracker): TDa
     case TChunkType.Enum:
       return parseChunksEnum(chunk, diagnostics)
     case TChunkType.Value:
-      return parseChunksValue(chunk.data, chunk.range)
+      return parseChunksValue(chunk.data, chunk.range, chunk.tokenRange)
     case TChunkType.Key:
     case TChunkType.ExpressionSeparator:
+    case TChunkType.Comment:
       IMPOSSIBLE()
   }
 }
@@ -368,6 +463,7 @@ function parseChunksEnum (chunk: TChunk & { type: TChunkType.Enum }, diagnostics
     type: TDataType.Enum,
     enumKey: chunk.enumKey,
     range: chunk.range,
+    tokenRange: chunk.tokenRange,
     contents: chunk.children !== null ? parseChunksBlock(chunk.children, diagnostics) : undefined,
   }
 }
@@ -378,16 +474,33 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
   let justHadWeakSeparator = true
   let expectingValue = true
   const data: TDataWithPosition[] = []
-  for (const chunk of chunks) {
+  let lastChunkI = -1
+  for (let chunkI = 0; chunkI < chunks.length; chunkI++) {
+    const chunk = chunks[chunkI]
+    const lastChunk = chunks[lastChunkI] ?? undefined
     switch (chunk?.type) {
+      case TChunkType.Comment:
+        // ignore
+        break
       case TChunkType.Key:
-        diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.IllegalKeyInListLike))
+        // Cannot have keys in lists
+        diagnostics.add(new InvalidIllegalChunkDiagnostic(
+          chunk,
+          IllegalChunkKind.IllegalKeyInListLike,
+          lastChunk,
+          IllegalChunkAutoFixType.Delete,
+        ))
         break
       case TChunkType.Block:
       case TChunkType.Value:
       case TChunkType.Enum:
         if (!expectingValue) {
-          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedSeparator))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(
+            chunk,
+            IllegalChunkKind.ExpectedSeparator,
+            lastChunk,
+            IllegalChunkAutoFixType.AddCommaBefore,
+          ))
           // No break, this is recoverable
         }
 
@@ -396,7 +509,7 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
             data.push(parseChunksBlock(chunk, diagnostics))
             break
           case TChunkType.Value:
-            data.push(parseChunksValue(chunk.data, chunk.range))
+            data.push(parseChunksValue(chunk.data, chunk.range, chunk.tokenRange))
             break
           case TChunkType.Enum:
             data.push(parseChunksEnum(chunk, diagnostics))
@@ -409,19 +522,34 @@ function parseChunksListLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
         break
       case TChunkType.ExpressionSeparator:
         if (justHadWeakSeparator && justHadSeparator) {
+          UnnecessaryCommaWarningParsingDiagnostic.runCheck(chunk, chunkI, chunks, diagnostics)
+          justHadWeakSeparator = chunk.weak
+          break
+        }
+        if (justHadSeparator && chunk.weak) {
           justHadWeakSeparator = chunk.weak
           break
         }
         justHadWeakSeparator = chunk.weak
 
         if (!expectingSeparator) {
-          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedValue))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(
+            chunk,
+            IllegalChunkKind.ExpectedValue,
+            lastChunk,
+            IllegalChunkAutoFixType.Delete,
+          ))
           break
         }
+        UnnecessaryCommaWarningParsingDiagnostic.runCheck(chunk, chunkI, chunks, diagnostics)
+
         expectingValue = true
         expectingSeparator = false
         justHadSeparator = true
         break
+    }
+    if (chunk.type !== TChunkType.Comment) {
+      lastChunkI = chunkI
     }
   }
   if (!expectingSeparator && !justHadSeparator) {
@@ -439,11 +567,22 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
   let lastKeyWasDuplicate = false
   const data: Record<string, TDataWithPosition> = {}
   const keyRanges: Record<string, Range> = {}
-  for (const chunk of chunks) {
+  let lastChunkI = -1
+  for (let chunkI = 0; chunkI < chunks.length; chunkI++) {
+    const chunk = chunks[chunkI]
+    const lastChunk = chunks[lastChunkI] ?? undefined
     switch (chunk?.type) {
+      case TChunkType.Comment:
+        // ignore
+        break
       case TChunkType.Key:
         if (!expectingKey) {
-          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, expectingSeparator ? IllegalChunkKind.ExpectedSeparator : IllegalChunkKind.ExpectedValue))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(
+            chunk,
+            expectingSeparator ? IllegalChunkKind.ExpectedSeparator : IllegalChunkKind.ExpectedValue,
+            lastChunk,
+            expectingSeparator ? IllegalChunkAutoFixType.AddCommaBefore : IllegalChunkAutoFixType.None,
+          ))
 
           if (expectingValueWithKey !== null) {
             break
@@ -469,7 +608,12 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
       case TChunkType.Value:
       case TChunkType.Enum:
         if (expectingValueWithKey === null) {
-          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, expectingKey ? IllegalChunkKind.ExpectedKey : IllegalChunkKind.ExpectedSeparator))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(
+            chunk,
+            expectingKey ? IllegalChunkKind.ExpectedKey : IllegalChunkKind.ExpectedSeparator,
+            lastChunk,
+            IllegalChunkAutoFixType.None,
+          ))
           break // NEED key
         }
 
@@ -481,7 +625,7 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
               data[expectingValueWithKey] = parseChunksBlock(chunk, diagnostics)
               break
             case TChunkType.Value:
-              data[expectingValueWithKey] = parseChunksValue(chunk.data, chunk.range)
+              data[expectingValueWithKey] = parseChunksValue(chunk.data, chunk.range, chunk.tokenRange)
               break
             case TChunkType.Enum:
               data[expectingValueWithKey] = parseChunksEnum(chunk, diagnostics)
@@ -496,20 +640,35 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
         break
       case TChunkType.ExpressionSeparator:
         if (justHadWeakSeparator && justHadSeparator) {
+          UnnecessaryCommaWarningParsingDiagnostic.runCheck(chunk, chunkI, chunks, diagnostics)
+          justHadWeakSeparator = chunk.weak
+          break
+        }
+        if (justHadSeparator && chunk.weak) {
           justHadWeakSeparator = chunk.weak
           break
         }
         justHadWeakSeparator = chunk.weak
 
         if (!expectingSeparator) {
-          diagnostics.add(new InvalidIllegalChunkDiagnostic(chunk, IllegalChunkKind.ExpectedValue))
+          diagnostics.add(new InvalidIllegalChunkDiagnostic(
+            chunk,
+            IllegalChunkKind.ExpectedValue,
+            lastChunk,
+            justHadSeparator ? IllegalChunkAutoFixType.Delete : IllegalChunkAutoFixType.None,
+          ))
           break
         }
+        UnnecessaryCommaWarningParsingDiagnostic.runCheck(chunk, chunkI, chunks, diagnostics)
+
         expectingKey = true
         expectingValueWithKey = null
         expectingSeparator = false
         justHadSeparator = true
         break
+    }
+    if (chunk.type !== TChunkType.Comment) {
+      lastChunkI = chunkI
     }
   }
   if (!expectingSeparator && !justHadSeparator) {
@@ -518,29 +677,29 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
   return { contents: data, keyRanges }
 }
 
-function parseChunksValue (data: TValueChunkData, range: Range): TDataWithPosition {
+function parseChunksValue (data: TValueChunkData, range: Range, tokenRange: TokenRange): TDataWithPosition {
   switch (data[0]) {
     case SingleValueType.Boolean:
-      return { type: TDataType.Primitive, which: data[0], value: data[1], range }
+      return { type: TDataType.Primitive, which: data[0], value: data[1], range, tokenRange }
     case SingleValueType.Int:
     case SingleValueType.Float:
-      return { type: TDataType.Primitive, which: data[0], value: data[1], range }
+      return { type: TDataType.Primitive, which: data[0], value: data[1], range, tokenRange }
     case SingleValueType.String:
-      return { type: TDataType.Primitive, which: data[0], value: data[1], range }
+      return { type: TDataType.Primitive, which: data[0], value: data[1], range, tokenRange }
   }
 }
 
-function parseChunksBlock (chunk: { children: TChunk[], kind: BlockType, range: Range }, diagnostics: DiagnosticTracker): TDataWithPosition & { type: TDataType.Block } {
-  const { range } = chunk
+function parseChunksBlock (chunk: { children: TChunk[], kind: BlockType, range: Range, tokenRange: TokenRange }, diagnostics: DiagnosticTracker): TDataWithPosition & { type: TDataType.Block } {
+  const { range, tokenRange } = chunk
   switch (chunk.kind) {
     case BlockType.Dict: {
       const { contents, keyRanges } = parseChunksDictLike(chunk.children, diagnostics)
-      return { type: TDataType.Block, kind: chunk.kind, contents, keyRanges, range }
+      return { type: TDataType.Block, kind: chunk.kind, contents, keyRanges, range, tokenRange }
     }
     case BlockType.Arr:
-      return { type: TDataType.Block, kind: chunk.kind, contents: parseChunksListLike(chunk.children, diagnostics), range }
+      return { type: TDataType.Block, kind: chunk.kind, contents: parseChunksListLike(chunk.children, diagnostics), range, tokenRange }
     case BlockType.Tuple:
-      return { type: TDataType.Block, kind: chunk.kind, contents: parseChunksListLike(chunk.children, diagnostics), range }
+      return { type: TDataType.Block, kind: chunk.kind, contents: parseChunksListLike(chunk.children, diagnostics), range, tokenRange }
   }
 }
 
@@ -574,6 +733,9 @@ export async function parse (tokens: TToken[], diagnostics: DiagnosticTracker): 
           [TChunkType.Enum] (chunk) {
             return ' ' + chunk.enumKey + '<' + (chunk.children === null ? '~Unit~' : BlockType[chunk.children.kind]) + '>'
           },
+          [TChunkType.Comment] (chunk) {
+            return ''
+          },
           [TChunkType.Block] (chunk) {
             return ' [' + BlockType[chunk.kind] + '] - ' + chunk.children.length.toString() + ' children'
           },
@@ -589,7 +751,7 @@ export async function parse (tokens: TToken[], diagnostics: DiagnosticTracker): 
         } satisfies { [T in TChunkType]: (a: TChunk & { type: T }) => string })[chunk.type](chunk as any)}`,
         data: chunk,
         severity: DiagnosticSeverity.Information,
-        range: chunk.range,
+        range: chunk.type === TChunkType.Block ? { start: chunk.range.start, end: chunk.range.end } : chunk.range,
       })
     }
   }

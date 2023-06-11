@@ -37,7 +37,8 @@ export enum TokenType {
   StringBoundary,
   BlockBoundary,
   Separator,
-  Ignored,
+  Comment,
+  Whitespace,
   Invalid,
   Newline,
 }
@@ -64,7 +65,10 @@ export type TokenData = ({
   type: TokenType.EnumKey
   isUnit: boolean
 } | {
-  type: TokenType.PropertyKey | TokenType.Newline | TokenType.Ignored
+  type: TokenType.Comment
+  isBlockComment: boolean
+} | {
+  type: TokenType.PropertyKey | TokenType.Newline | TokenType.Whitespace
 })
 
 export class TToken {
@@ -96,10 +100,6 @@ export class TToken {
 
   get isInvalid (): boolean {
     return this.data.type === TokenType.Invalid
-  }
-
-  get isIgnored (): boolean {
-    return this.data.type === TokenType.Ignored
   }
 
   get depth (): number {
@@ -161,10 +161,14 @@ export class TToken {
           type: TokenType.StringData,
         }),
         'comment.': () => ({
-          type: TokenType.Ignored,
+          type: TokenType.Comment,
+          isBlockComment: switcher.switch({
+            'line.': () => false,
+            'block.': () => true,
+          }),
         }),
         'whitespace.': () => ({
-          type: TokenType.Ignored,
+          type: TokenType.Whitespace,
         }),
         'invalid.illegal.': () => ({
           type: TokenType.Invalid,
@@ -181,7 +185,7 @@ export class TToken {
     } catch (err) {
       if (err instanceof StringSwitcherError) {
         if (lines[line].trim().length === 0) {
-          return new TToken(lines, line, rawToken, { type: TokenType.Ignored })
+          return new TToken(lines, line, rawToken, { type: TokenType.Whitespace })
         }
         console.error(err)
         return new TToken(
