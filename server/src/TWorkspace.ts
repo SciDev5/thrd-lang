@@ -1,14 +1,15 @@
 import * as chokidar from 'chokidar'
 import * as fs from 'fs/promises'
+import * as path from 'path'
 import * as url from 'url'
 import { URL } from 'url'
-import { type WorkspaceFolder, type URI } from 'vscode-languageserver'
+import { type URI, type WorkspaceFolder } from 'vscode-languageserver'
 import { type TextDocument } from 'vscode-languageserver-textdocument'
 import { TDocument } from './TDocument'
-import { THROW } from './util/THROW'
-import path = require('path')
 import { LOG } from './util/Logger'
 import { Scheduler } from './util/Scheduler'
+import { THROW } from './util/THROW'
+import { TWorkspaceTypeIndex } from './TWorkspaceTypeIndex'
 
 export class TWorkspace {
   static all = new Map<string, TWorkspace>()
@@ -53,7 +54,13 @@ export class TWorkspace {
 
     LOG.fileLoading.log('+', source.uri)
 
-    this.documents.set(source.uri, new TDocument(source, this))
+    const doc = new TDocument(source, this)
+    this.documents.set(source.uri, doc)
+    if (doc.isTypespec) {
+      this.typespecDocuments.add(doc)
+    } else {
+      this.dataDocuments.add(doc)
+    }
     this.refreshScheduler.schedule()
   }
 
@@ -62,7 +69,12 @@ export class TWorkspace {
 
     LOG.fileLoading.log('-', uri)
 
-    this.documents.get(uri)?.unwatch()
+    const oldDoc = this.documents.get(uri)
+    if (oldDoc != null) {
+      oldDoc.unwatch()
+      this.dataDocuments.delete(oldDoc)
+      this.typespecDocuments.delete(oldDoc)
+    }
     if (this.documents.delete(uri)) {
       this.refreshScheduler.schedule()
     }
@@ -94,8 +106,12 @@ export class TWorkspace {
   }, 20, 500)
 
   readonly documents = new Map<URI, TDocument>()
+  readonly dataDocuments = new Set<TDocument>()
+  readonly typespecDocuments = new Set<TDocument>()
+  readonly typeIndex = new TWorkspaceTypeIndex(this.typespecDocuments)
   private refreshDocuments (): void {
-    for (const document of this.documents.values()) {
+    this.typeIndex.refresh()
+    for (const document of this.dataDocuments) {
       document.refreshParse()
     }
   }
@@ -126,7 +142,7 @@ export class TWorkspace {
   private static getWatchGlobs (uri: URI): string[] | null {
     try {
       const basePath = url.fileURLToPath(uri)
-      return ['/**/*.thrd'].map(ext => path.join(basePath, ext))
+      return ['/**/*.thrd', '/**/*.thrdspec'].map(ext => path.join(basePath, ext))
     } catch (e) {
       console.warn('Cannot watch non-filesystem directory')
       return null

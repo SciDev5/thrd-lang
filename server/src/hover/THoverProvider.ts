@@ -6,6 +6,7 @@ import { BlockType, SingleValueType, TokenType } from '../parsing/TToken'
 import { TTypeSpecType, type BlockTypeSpec, type TTypeEnumSpec, type TTypeSpec } from '../parsing/TTypeSpec'
 import { IMPOSSIBLE } from '../util/THROW'
 import { positionIsInRange } from '../util/range'
+import { isErr } from '../util/Result'
 
 type HoverTraceKey = { kind: BlockType.Dict, key: string } | { kind: BlockType.Arr } | { kind: BlockType.Tuple, i: number } | { enumKey: string }
 type HoverTraceTarget = { propertyKey?: never } | { propertyKey: string, propertyKeyRange: Range }
@@ -70,22 +71,25 @@ function traceDataTokens_blockChildren (data: TDataWithPosition, block: BlockDat
   return null
 }
 
-function displayTypeName (type: TTypeSpec): string {
-  return displayTypeNameLines(type).map(({ indent, line }) => '    '.repeat(indent) + line).join('\n')
+function displayTypeName (type: TTypeSpec, maxDepth: number = 6): string {
+  return displayTypeNameLines(type, maxDepth).map(({ indent, line }) => '    '.repeat(indent) + line).join('\n')
 }
 
 interface DisplayLineGenerating { indent: number, line: string }
-function displayTypeNameLines (type: TTypeSpec): DisplayLineGenerating[] {
+function displayTypeNameLines (type: TTypeSpec, maxDepth: number): DisplayLineGenerating[] {
+  if (maxDepth === 0) {
+    return [{ indent: 0, line: ' ... ' }]
+  }
   switch (type.type) {
     case TTypeSpecType.Block:
-      return displayBlockTypeNameLines(type)
+      return displayBlockTypeNameLines(type, maxDepth)
     case TTypeSpecType.Enum: {
       const inner: DisplayLineGenerating[] = []
       for (const enumKey in type.enumSpec) {
         const spec = type.enumSpec[enumKey]
         const innerLines = spec === null
           ? [{ indent: 0, line: '#unit' }]
-          : displayBlockTypeNameLines(spec)
+          : displayBlockTypeNameLines(spec, maxDepth)
         innerLines[0].line = enumKey + ': ' + innerLines[0].line
         inner.push(...innerLines)
       }
@@ -108,7 +112,7 @@ function displayTypeNameLines (type: TTypeSpec): DisplayLineGenerating[] {
     }
   }
 }
-function displayBlockTypeNameLines (type: BlockTypeSpec): DisplayLineGenerating[] {
+function displayBlockTypeNameLines (type: BlockTypeSpec, maxDepth: number): DisplayLineGenerating[] {
   let brackets: [string, string]
   let inner: DisplayLineGenerating[]
   switch (type.kind) {
@@ -116,21 +120,21 @@ function displayBlockTypeNameLines (type: BlockTypeSpec): DisplayLineGenerating[
       brackets = ['{', '}']
       inner = []
       for (const key in type.contents) {
-        const innerLines = displayTypeNameLines(type.contents[key])
+        const innerLines = displayTypeNameLines(type.contents[key], maxDepth - 1)
         innerLines[0].line = key + ': ' + innerLines[0].line
         inner.push(...innerLines)
       }
       break
     case BlockType.Arr:
       // brackets = ['', '[]']
-      inner = displayTypeNameLines(type.contents)
+      inner = displayTypeNameLines(type.contents, maxDepth - 1)
       inner[inner.length - 1].line += '[]'
       return inner
     case BlockType.Tuple:
       brackets = ['#tuple (', ')']
       inner = []
       for (const ent of type.contents) {
-        inner.push(...displayTypeNameLines(ent))
+        inner.push(...displayTypeNameLines(ent, maxDepth - 1))
       }
       break
   }
@@ -181,7 +185,11 @@ export const THoverProvider = {
       hoverTraceKeys.push({ kind: BlockType.Dict, key: target.propertyKey })
     }
 
-    let expectedType: TTypeSpec | typeof unitType = doc.typeSpec
+    const topLevelType = typeof doc.typeSpec === 'number' ? null : doc.typeSpec
+    if (topLevelType == null || isErr(topLevelType[1])) {
+      return null
+    }
+    let expectedType: TTypeSpec | typeof unitType = topLevelType[1][0]
     let nSafeKeys = 0
     let typeFailed = false
     for (const key of hoverTraceKeys) {

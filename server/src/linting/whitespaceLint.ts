@@ -107,7 +107,7 @@ function findDataBlockDepth (data: TDataWithPosition, pos: Position): number {
 function findBlockBlockDepth (data: BlockDataWithPosition, pos: Position, contentRange: Range): number {
   if (!positionIsInRange(pos, contractRange(contentRange, 1))) return 0
   const children = blockDataChildren(data)
-  return 1 + Math.max(...children.map(elt => findDataBlockDepth(elt, pos)))
+  return 1 + Math.max(0, ...children.map(elt => findDataBlockDepth(elt, pos)))
 }
 
 class InlinePaddingWhitespaceLintDiagnostic extends TDiagnostic {

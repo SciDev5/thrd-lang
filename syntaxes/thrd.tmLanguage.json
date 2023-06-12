@@ -10,6 +10,9 @@
 			"include": "#blocks"
 		},
 		{
+			"include": "#unit-enum"
+		},
+		{
 			"include": "#non-coding"
 		}
 	],

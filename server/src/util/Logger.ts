@@ -23,7 +23,9 @@ export class Logger {
 export const LOG = {
   general: new Logger(),
   fileLoading: new Logger(),
+  parsing: new Logger(),
 } as const
 
 Logger.enable(LOG.general)
 Logger.enable(LOG.fileLoading)
+Logger.enable(LOG.parsing)

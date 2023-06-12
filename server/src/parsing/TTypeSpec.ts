@@ -4,6 +4,7 @@ import { IMPOSSIBLE } from '../util/THROW'
 import { setAnd, setXOR } from '../util/set'
 import { TDataType, type TDataWithPosition } from './TData'
 import { BlockType, SingleValueType } from './TToken'
+import { type Result, isErr } from '../util/Result'
 
 export enum TTypeSpecType {
   Primitive,
@@ -67,6 +68,24 @@ export function typeName (type: TTypeSpec): string {
       return blockTypeName(type)
     case TTypeSpecType.Primitive:
       return primitiveTypeName(type.which)
+  }
+}
+
+class TypeResolutionIssueTypeDiagnostic extends TDiagnostic {
+  constructor (
+    data: TDataWithPosition,
+    type: TypeResolutionIssue,
+    typeName: string,
+  ) {
+    super({
+      message: ({
+        [TypeResolutionIssue.CouldNotFind]: `No type declarations found for "${typeName}", try defining a file named "${typeName}.thrdspec"`,
+        [TypeResolutionIssue.ConflictingDeclarations]: `More than one type declaration found for "${typeName}"`,
+        [TypeResolutionIssue.DefectiveDeclaration]: `Type definition file for document type "${typeName}" has errors and cannot be parsed`,
+        [TypeResolutionIssue.ReferenceInvalid]: `File name format incorrect.\n - Expected to match /^(.*?\\.)?\\w+\\.thrd$/'\n - Found "${typeName}"`,
+      } satisfies { [key in TypeResolutionIssue]: string })[type],
+      range: { start: data.range.start, end: data.range.start },
+    })
   }
 }
 
@@ -175,6 +194,26 @@ class EnumOptionUnavailableTypeDiagnostic extends TDiagnostic {
   }
 }
 
+export enum TypeResolutionIssue {
+  CouldNotFind,
+  ConflictingDeclarations,
+  DefectiveDeclaration,
+  ReferenceInvalid,
+}
+
+export function lintingTypeCheckOrTypeFindingError (
+  data: TDataWithPosition,
+  [typeName, type]: [string, Result<TTypeSpec, TypeResolutionIssue>],
+  diagnostics: DiagnosticTracker,
+): boolean {
+  if (isErr(type)) { // Enums are represented internally as number, this selects for the `TypeResolutionIssue` enum
+    diagnostics.add(new TypeResolutionIssueTypeDiagnostic(data, type[1], typeName))
+    return false
+  } else {
+    return lintingTypeCheck(data, type[0], diagnostics)
+  }
+}
+
 export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diagnostics: DiagnosticTracker): boolean {
   switch (data.type) {
     case TDataType.Primitive:
@@ -225,15 +264,17 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
             if (type.kind !== BlockType.Tuple) IMPOSSIBLE()
             const nExpected = type.contents.length
             const nData = data.contents.length
+            let allOk = true
             if (nData > nExpected) {
               // Received too many elements into tuple
               diagnostics.add(new TupleTooManyEltsTypeDiagnostic(type.contents, data.contents))
+              allOk = false
             }
             if (nData < nExpected) {
               // Received too few elements into tuple
               diagnostics.add(new TupleTooFewEltsTypeDiagnostic(type.contents, data.contents, data.range))
+              allOk = false
             }
-            let allOk = true
             for (let i = 0; i < Math.min(nData, nExpected); i++) {
               const ok = lintingTypeCheck(data.contents[i], type.contents[i], diagnostics)
               allOk &&= ok

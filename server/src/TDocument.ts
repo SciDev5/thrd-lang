@@ -1,16 +1,18 @@
 import { CodeAction, CodeActionKind, TextDocuments, type Connection, type Position } from 'vscode-languageserver'
 import { TextDocument } from 'vscode-languageserver-textdocument'
-import { TEST_TYPE } from './TEST_TYPE'
-import { type SourceFile, TWorkspace } from './TWorkspace'
+import { TWorkspace, type SourceFile } from './TWorkspace'
+import { TYPESPEC_SPEC } from './TWorkspaceTypeIndex'
 import { capabilities } from './capabilities'
 import { DiagnosticTracker } from './linting/DiagnosticTracker'
 import { whitespaceLint } from './linting/whitespaceLint'
 import { type TDataWithPosition } from './parsing/TData'
 import { TToken } from './parsing/TToken'
-import { lintingTypeCheck, type TTypeSpec } from './parsing/TTypeSpec'
+import { TypeResolutionIssue, lintingTypeCheckOrTypeFindingError, type TTypeSpec } from './parsing/TTypeSpec'
 import { parse } from './parsing/parse'
 import { globalSettings, type THRDServerSettings } from './settings'
 import { positionIsInRange } from './util/range'
+import { Err, Ok, type Result } from './util/Result'
+import { IMPOSSIBLE } from './util/THROW'
 
 const documents = new TextDocuments(TextDocument)
 let connection: Connection
@@ -35,9 +37,9 @@ export class TParsedDoc {
     readonly lines: Lines,
     readonly tokens: TToken[],
     readonly data: TDataWithPosition,
-    readonly typeSpec: TTypeSpec,
+    readonly typeSpec: [string, Result<TTypeSpec, TypeResolutionIssue>],
   ) {
-    lintingTypeCheck(this.data, typeSpec, this.typeDiagnostics)
+    lintingTypeCheckOrTypeFindingError(this.data, typeSpec, this.typeDiagnostics)
   }
 
   tokenAt (pos: Position): number {
@@ -84,7 +86,7 @@ export class TDocument {
     const data = await parse(tokens, syntaxDiagnosticTracker)
 
     const doc = data !== null
-      ? new TParsedDoc(lines, tokens, data, TEST_TYPE)
+      ? new TParsedDoc(lines, tokens, data, await this.getTypespec())
       : null
 
     this.parsedResolved = doc
@@ -155,5 +157,32 @@ export class TDocument {
    */
   getParsedDoc (): TParsedDoc | null {
     return this.parsedResolved
+  }
+
+  get isTypespec (): boolean {
+    return this.source.uri.endsWith('.thrdspec')
+  }
+
+  get nameKey (): { type: string } | null {
+    const match = this.isTypespec
+      ? this.source.uri.match(/[\\/](\w+)\.thrdspec$/)
+      : this.source.uri.match(/[\\/](?:.+?\.)?(\w+)\.thrd$/)
+
+    if (match == null) {
+      return null
+    } else {
+      return { type: match[1] }
+    }
+  }
+
+  private async getTypespec (): Promise<[string, Result<TTypeSpec, TypeResolutionIssue>]> {
+    if (this.isTypespec) {
+      return ['', Ok(TYPESPEC_SPEC)]
+    } else if (this.nameKey != null) {
+      await this.workspace.typeIndex.ready
+      return [this.nameKey.type, this.workspace.typeIndex.map.get(this.nameKey.type) ?? Err(TypeResolutionIssue.CouldNotFind)]
+    } else {
+      return [(this.source.uri.match(/([\\/][^\\/]*?)$/) ?? IMPOSSIBLE())[1], Err(TypeResolutionIssue.ReferenceInvalid)]
+    }
   }
 }

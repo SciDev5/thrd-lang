@@ -722,9 +722,28 @@ class DataExpectedParsingDiagnostic extends TDiagnostic {
   }
 }
 
+class IllegalTopLevelParsingDiagnostic extends TDiagnostic {
+  constructor (
+    chunk: TChunk,
+  ) {
+    super({
+      message: 'Illegal top level chunk.',
+      range: chunk.range,
+    }, {
+      canContinue: false,
+    })
+  }
+}
+
 export async function parse (tokens: TToken[], diagnostics: DiagnosticTracker): Promise<TDataWithPosition | null> {
   const chunkified = chunkify(tokens, diagnostics)
-  const chunks = chunkified.chunks.filter(v => [TChunkType.Block, TChunkType.Value].includes(v.type))
+
+  const illegalTopLevelChunks = chunkified.chunks.filter(v => ![TChunkType.Block, TChunkType.Value, TChunkType.Enum, TChunkType.Comment].includes(v.type) && !(v.type === TChunkType.ExpressionSeparator && v.weak))
+  for (const illegalChunk of illegalTopLevelChunks) {
+    diagnostics.add(new IllegalTopLevelParsingDiagnostic(illegalChunk))
+  }
+
+  const chunks = chunkified.chunks.filter(v => [TChunkType.Block, TChunkType.Value, TChunkType.Enum].includes(v.type))
 
   if (DEBUG_CONSTANTS.SHOW_CHUNKS_AS_INFO_DIAGNOSTICS) {
     for (const chunk of chunkified.allChunks) {
