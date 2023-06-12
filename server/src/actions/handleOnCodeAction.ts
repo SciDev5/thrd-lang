@@ -1,6 +1,7 @@
 import { CodeActionKind, type CodeAction, type CodeActionParams } from 'vscode-languageserver'
 import { TDocument } from '../TDocument'
 import { StringSwitcher } from '../util/StringSwitcher'
+import { SourceFile } from '../TWorkspace'
 
 export function handleOnCodeAction (params: CodeActionParams): CodeAction[] {
   const actions: CodeAction[] = []
@@ -16,7 +17,7 @@ export function handleOnCodeAction (params: CodeActionParams): CodeAction[] {
           if (switcher.remaining.length > 0 && switcher.remaining !== 'thrd') {
             return
           }
-          const document = TDocument.getByUri(params.textDocument.uri)
+          const document = TDocument.getByUri(SourceFile.normalizeURI(params.textDocument.uri))
           if (document !== null) {
             actions.push(document.generateSourceFixAllCodeAction())
           }

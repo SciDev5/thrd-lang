@@ -2,6 +2,7 @@ import { type Connection } from 'vscode-languageserver'
 import { TDocument } from './TDocument'
 import { capabilities } from './capabilities'
 import { THROW } from './util/THROW'
+import { TWorkspace } from './TWorkspace'
 
 export interface THRDServerSettings {
   maxNumberOfProblems: number
@@ -21,8 +22,8 @@ export function bindSettings (connection: Connection): void {
       globalSettings_ = (change.settings.languageServerExample ?? defaultSettings) as THRDServerSettings
     }
 
-    Promise.all(TDocument.all().map(async v => {
-      await v.validateAndSend()
+    Promise.all([...TWorkspace.all.values()].map(async v => {
+      await v.validateAllAndSend()
     })).catch(THROW)
   })
 }

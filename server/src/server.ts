@@ -12,9 +12,11 @@ import {
   type CompletionParams,
   type InitializeParams,
   type InitializeResult,
+  type URI,
 } from 'vscode-languageserver/node'
 
 import { bindDocuments } from './TDocument'
+import { TWorkspace } from './TWorkspace'
 import { handleOnCodeAction } from './actions/handleOnCodeAction'
 import { capabilities, computeCapabilities } from './capabilities'
 import { handleOnHover } from './hover/handleOnHover'
@@ -24,6 +26,11 @@ const connection = createConnection(ProposedFeatures.all)
 
 connection.onInitialize((params: InitializeParams) => {
   computeCapabilities(params)
+
+  TWorkspace.workspaceChanged(
+    params.workspaceFolders ?? [{ uri: params.rootUri as URI, name: 'rootUri' }],
+    [],
+  ).catch(e => { throw e })
 
   const result: InitializeResult = {
     capabilities: {
@@ -43,7 +50,8 @@ connection.onInitialized(() => {
   }
   if (capabilities.workspaceFolder) {
     connection.workspace.onDidChangeWorkspaceFolders(ev => {
-      console.log('workspace changed', ev)
+      TWorkspace.workspaceChanged(ev.added, ev.removed)
+        .catch(e => { throw e })
     })
   }
 })

@@ -1,6 +1,7 @@
 import { CodeAction, CodeActionKind, TextDocuments, type Connection, type Position } from 'vscode-languageserver'
 import { TextDocument } from 'vscode-languageserver-textdocument'
 import { TEST_TYPE } from './TEST_TYPE'
+import { type SourceFile, TWorkspace } from './TWorkspace'
 import { capabilities } from './capabilities'
 import { DiagnosticTracker } from './linting/DiagnosticTracker'
 import { whitespaceLint } from './linting/whitespaceLint'
@@ -15,14 +16,13 @@ const documents = new TextDocuments(TextDocument)
 let connection: Connection
 export function bindDocuments (connectionToBind: Connection): void {
   connection = connectionToBind
-  documents.onDidClose(e => {
-    TDocument.close(e.document)
-  })
 
   documents.onDidChangeContent(e => {
-    const doc = TDocument.get(e.document)
-    doc.notifyDidChangeContent()
-    doc.validateAndSend().catch(e => { throw e })
+    TWorkspace.openInEditor(e.document)
+    TWorkspace.reportChangesFromLSP(e.document)
+  })
+  documents.onDidClose(e => {
+    TWorkspace.closedInEditor(e.document)
   })
 
   documents.listen(connection)
@@ -52,35 +52,25 @@ export class TParsedDoc {
 }
 
 export class TDocument {
-  private static readonly open = new Map<string, TDocument>()
-
-  static close (document: TextDocument): void {
-    this.open.delete(document.uri)
-  }
-
-  static get (document: TextDocument): TDocument {
-    return this.open.get(document.uri) ?? new TDocument(document)
-  }
+  private static readonly all = new Map<string, TDocument>()
 
   static getByUri (uri: string): TDocument | null {
-    return this.open.get(uri) ?? null
-  }
-
-  static all (): TDocument[] {
-    return [...this.open.values()]
-  }
-
-  static refreshSettings (): void {
-    for (const document of this.open.values()) {
-      document._documentSettings = document.computeDocumentSettings()
-    }
+    return this.all.get(uri) ?? null
   }
 
   constructor (
-    readonly document: TextDocument,
+    readonly source: SourceFile,
+    readonly workspace: TWorkspace,
   ) {
-    TDocument.open.set(document.uri, this)
+    if (TDocument.all.has(source.uri)) {
+      throw new Error('TODO handle overlapping workspaces')
+    }
+    TDocument.all.set(source.uri, this)
     this.parsed = this.parse()
+  }
+
+  unwatch (): void {
+    TDocument.all.delete(this.source.uri)
   }
 
   private parsed: Promise<[TParsedDoc | null, DiagnosticTracker]>
@@ -89,7 +79,7 @@ export class TDocument {
   private async parse (): Promise<[TParsedDoc | null, DiagnosticTracker]> {
     const syntaxDiagnosticTracker = new DiagnosticTracker()
 
-    const lines = this.document.getText().split('\n')
+    const lines = this.source.getText().split('\n')
     const tokens = await TToken.lex(lines)
     const data = await parse(tokens, syntaxDiagnosticTracker)
 
@@ -108,17 +98,25 @@ export class TDocument {
   private async computeDocumentSettings (): Promise<THRDServerSettings | null> {
     return capabilities.configuration
       ? await connection.workspace.getConfiguration({
-        scopeUri: this.document.uri,
+        scopeUri: this.source.uri,
         section: 'thrdLanguageServer',
       })
       : null
+  }
+
+  refreshSettings (): void {
+    this._documentSettings = this.computeDocumentSettings()
+  }
+
+  static refreshSettings (): void {
+    this.all.forEach(v => { v.refreshSettings() })
   }
 
   get documentSettings (): Promise<THRDServerSettings> {
     return this._documentSettings.then(v => v ?? globalSettings())
   }
 
-  notifyDidChangeContent (): void {
+  refreshParse (): void {
     // refresh the document content
     this.parsed = this.parse()
   }
@@ -129,10 +127,6 @@ export class TDocument {
     const [parsedDoc, syntaxDiagnostics] = await this.parsed
     diagnostics.mergeIn(syntaxDiagnostics)
 
-    // console.log('DOC', parsedDoc)
-
-    console.log('H', parsedDoc !== null)
-
     if (parsedDoc !== null) {
       diagnostics.mergeIn(parsedDoc.typeDiagnostics)
 
@@ -141,7 +135,7 @@ export class TDocument {
 
     this.allDiagnostics = diagnostics
     await connection.sendDiagnostics({
-      uri: this.document.uri,
+      uri: this.source.uri,
       diagnostics: diagnostics.collectDiagnostcis(),
     })
   }
@@ -149,7 +143,7 @@ export class TDocument {
   generateSourceFixAllCodeAction (): CodeAction {
     return CodeAction.create('Fix all auto-fixable issues', {
       changes: {
-        [this.document.uri]: this.allDiagnostics.collectAutoFixes(),
+        [this.source.uri]: this.allDiagnostics.collectAutoFixes(),
       },
     }, CodeActionKind.SourceFixAll)
   }

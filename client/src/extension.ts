@@ -1,5 +1,5 @@
 import { join } from 'path'
-import { workspace, type ExtensionContext } from 'vscode'
+import { type ExtensionContext } from 'vscode'
 import { LanguageClient, TransportKind } from 'vscode-languageclient/node'
 
 let client: LanguageClient | null = null
@@ -28,7 +28,11 @@ export function activate (context: ExtensionContext): void {
     {
       documentSelector: [{ scheme: 'file', language: 'thrd' }],
       synchronize: {
-        fileEvents: workspace.createFileSystemWatcher('**/.thrdrc'),
+        fileEvents: [ // This doesn't seem to work, using chokidor
+          // workspace.createFileSystemWatcher('**/.thrdrc'),
+          // workspace.createFileSystemWatcher('**/.thrd'),
+          // workspace.createFileSystemWatcher('**/.thrdspec'),
+        ],
       },
     },
   )
