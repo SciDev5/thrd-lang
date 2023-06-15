@@ -22,6 +22,10 @@
           ".thrdlib",
           ".thrdspec"
         ],
+        "icon": {
+          "dark": "./assets/thrd-lang-icon.png",
+          "light": "./assets/thrd-lang-icon.png"
+        },
         "configuration": "./language-configuration.json"
       },
       {
