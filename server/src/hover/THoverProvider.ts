@@ -1,75 +1,10 @@
-import { type Hover, type Position, type Range } from 'vscode-languageserver'
+import { type Hover, type Position } from 'vscode-languageserver'
 import { DEBUG_CONSTANTS } from '../DEBUG_CONSTANTS'
 import { type TParsedDoc } from '../TDocument'
-import { TDataType, blockDataChildrenWithKey, type BlockDataWithPosition, type TDataWithPosition } from '../parsing/TData'
 import { BlockType, SingleValueType, TokenType } from '../parsing/TToken'
-import { TTypeSpecType, type BlockTypeSpec, type TTypeEnumSpec, type TTypeSpec } from '../parsing/TTypeSpec'
-import { IMPOSSIBLE } from '../util/THROW'
-import { positionIsInRange } from '../util/range'
-import { isErr } from '../util/Result'
-
-type HoverTraceKey = { kind: BlockType.Dict, key: string } | { kind: BlockType.Arr } | { kind: BlockType.Tuple, i: number } | { enumKey: string }
-type HoverTraceTarget = { propertyKey?: never } | { propertyKey: string, propertyKeyRange: Range }
-type HoverTraceResult = [TDataWithPosition[], HoverTraceKey[], HoverTraceTarget] | null
-
-const unitType = Symbol('represents a unit type')
-
-function traceDataTokens (data: TDataWithPosition, pos: Position): HoverTraceResult {
-  if (!positionIsInRange(pos, data.range)) {
-    return null
-  }
-
-  switch (data.type) {
-    case TDataType.Block: {
-      const childRes = traceDataTokens_blockChildren(data, data, pos)
-      if (childRes !== null) {
-        return childRes
-      } else {
-        // No hovering children found
-        return [[data], [], {}]
-      }
-    }
-    case TDataType.Enum:
-      if (data.contents !== undefined) {
-        const childRes = traceDataTokens_blockChildren(data, data.contents, pos)
-        if (childRes !== null) {
-          childRes[1].push({ enumKey: data.enumKey })
-          return childRes
-        }
-      } else {
-        // no content block -> could only be hovering on enum key
-      }
-      return [[data], [{ enumKey: data.enumKey }], {}]
-    case TDataType.Primitive:
-      // cannot have children, break immediately
-      return [[data], [], {}]
-    default:
-      IMPOSSIBLE()
-  }
-}
-
-// eslint-disable-next-line @typescript-eslint/naming-convention
-function traceDataTokens_blockChildren (data: TDataWithPosition, block: BlockDataWithPosition, pos: Position): HoverTraceResult {
-  // Check if we're hovering over a property key
-  if (block.kind === BlockType.Dict) {
-    for (const key in block.keyRanges) {
-      if (positionIsInRange(pos, block.keyRanges[key])) {
-        return [[data], [], { propertyKey: key, propertyKeyRange: block.keyRanges[key] }]
-      }
-    }
-  }
-  // Check if we're hovering over a child of this block
-  for (const [key, elt] of blockDataChildrenWithKey(block)) {
-    const match = traceDataTokens(elt, pos)
-    if (match !== null) {
-      match[0].push(data)
-      match[1].push(key)
-      return match
-    }
-  }
-  // Not hovering over block contents
-  return null
-}
+import { TTypeSpecType, type BlockTypeSpec, type TTypeSpec } from '../parsing/TTypeSpec'
+import { traceDataTokens, traceExpectedType, unitType } from './traceDataTokens'
+import { isErr, unwrapResult } from '../util/Result'
 
 function displayTypeName (type: TTypeSpec, maxDepth: number = 6): string {
   return displayTypeNameLines(type, maxDepth).map(({ indent, line }) => '    '.repeat(indent) + line).join('\n')
@@ -176,74 +111,22 @@ export const THoverProvider = {
 
     let value = ''
 
-    const [hoverTraceData, hoverTraceKeys, target] = traceDataTokens(doc.data, pos) ?? IMPOSSIBLE()
-    // make the trace deepest-last
-    hoverTraceData.reverse()
-    hoverTraceKeys.reverse()
+    const traceResult = traceDataTokens(doc.data, pos)
+    if (traceResult == null) {
+      return null
+    }
+    const [hoverTraceData, hoverTraceKeys, target] = traceResult
 
     if (target.propertyKey !== undefined) {
       hoverTraceKeys.push({ kind: BlockType.Dict, key: target.propertyKey })
     }
 
-    const topLevelType = typeof doc.typeSpec === 'number' ? null : doc.typeSpec
+    const topLevelType = doc.typeSpec
     if (topLevelType == null || isErr(topLevelType[1])) {
       return null
     }
-    let expectedType: TTypeSpec | typeof unitType = topLevelType[1][0]
-    let nSafeKeys = 0
-    let typeFailed = false
-    for (const key of hoverTraceKeys) {
-      if (expectedType === unitType) {
-        // illegal indexing into unit
-        typeFailed = true
-        break
-      }
-      if ('enumKey' in key) {
-        if (expectedType.type !== TTypeSpecType.Enum || !(key.enumKey in expectedType.enumSpec)) {
-          // type mismatch
-          typeFailed = true
-          break
-        }
-        const enumEnt: TTypeEnumSpec[string] = expectedType.enumSpec[key.enumKey]
-        expectedType =
-          (enumEnt !== null
-            ? { ...enumEnt, type: TTypeSpecType.Block } as const
-            : unitType)
-      } else {
-        if (expectedType.type !== TTypeSpecType.Block) {
-          // type mismatch
-          typeFailed = true
-          break
-        }
-        if (key.kind === BlockType.Dict && expectedType.kind === BlockType.Dict) {
-          const next: TTypeSpec | undefined = expectedType.contents[key.key]
-          if (next == null) {
-            // index invalid
-            typeFailed = true
-            break
-          }
-          expectedType = next
-        } else if (key.kind === BlockType.Arr && expectedType.kind === BlockType.Arr) {
-          expectedType = expectedType.contents
-        } else if (key.kind === BlockType.Tuple && expectedType.kind === BlockType.Tuple) {
-          const next: TTypeSpec | undefined = expectedType.contents[key.i]
-          if (next == null) {
-          // index invalid
-            typeFailed = true
-            break
-          }
-          expectedType = next
-        } else {
-          // type mismatch
-          typeFailed = true
-          break
-        }
-      }
-      nSafeKeys++
-    }
-    if (typeFailed) {
-      // do something ig
-    }
+
+    const { nSafeKeys, typeFailed, expectedType } = traceExpectedType(hoverTraceKeys, unwrapResult(topLevelType[1]))
 
     const range = typeFailed
       ? [

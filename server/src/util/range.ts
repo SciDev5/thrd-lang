@@ -33,6 +33,19 @@ export function positionIsInRange (pos: Position, range: Range): boolean {
   return true
 }
 
+/** Compares position `a` and `b`. Returns a number, `-1 | 0 | 1`, Conceptually equivalent to `a - b`.  */
+export function positionCompare (a: Position, b: Position): -1 | 0 | 1 {
+  if (a.line !== b.line) {
+    return sign(a.line - b.line)
+  } else {
+    return sign(a.character - b.character)
+  }
+}
+
+function sign (x: number): -1 | 0 | 1 {
+  return x === 0 ? 0 : x > 0 ? 1 : -1
+}
+
 export function contractRange (range: Range, amountStart: number, amountEnd: number = amountStart): Range {
   return {
     start: { line: range.start.line, character: range.start.character + amountStart },

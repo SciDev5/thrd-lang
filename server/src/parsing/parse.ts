@@ -585,7 +585,7 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
           ))
 
           if (expectingValueWithKey !== null) {
-            break
+            // No break, last key takes precedent
           }
           if (expectingSeparator) {
             // No break, this is recoverable
@@ -595,7 +595,10 @@ function parseChunksDictLike (chunks: TChunk[], diagnostics: DiagnosticTracker):
         lastKeyWasDuplicate = chunk.key in data
         if (lastKeyWasDuplicate) {
           diagnostics.add(new DuplicatePropertyKeyParsingDiagnostic(chunk))
+          break
         } else {
+          // This data will be left in place in case of failures
+          // so that autofill works as expected
           keyRanges[chunk.key] = chunk.range
         }
 

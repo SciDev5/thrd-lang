@@ -1,15 +1,10 @@
 import {
   CodeActionKind,
-  CompletionItemKind,
   DidChangeConfigurationNotification,
-  MarkupKind,
   PositionEncodingKind,
   ProposedFeatures,
   TextDocumentSyncKind,
-  TextEdit,
   createConnection,
-  type CompletionItem,
-  type CompletionParams,
   type InitializeParams,
   type InitializeResult,
   type URI,
@@ -19,6 +14,7 @@ import { bindDocuments } from './TDocument'
 import { TWorkspace } from './TWorkspace'
 import { handleOnCodeAction } from './actions/handleOnCodeAction'
 import { capabilities, computeCapabilities } from './capabilities'
+import { handleOnCompletion, handleOnCompletionResolve } from './completions/handleOnCompletion'
 import { handleOnHover } from './hover/handleOnHover'
 import { bindSettings } from './settings'
 
@@ -59,37 +55,8 @@ connection.onInitialized(() => {
 bindSettings(connection)
 bindDocuments(connection)
 
-connection.onCompletion((params: CompletionParams) => {
-  const completions: CompletionItem[] = []
-
-  completions.push({
-    label: 'info',
-    data: `${JSON.stringify(params)}`,
-  })
-
-  completions.push({
-    label: 'replace',
-    kind: CompletionItemKind.Enum,
-    detail: '1',
-    textEdit: TextEdit.replace({ start: { line: params.position.line, character: 0 }, end: { line: params.position.line, character: params.position.character } }, ':3'),
-  })
-  completions.push({
-    label: 'testValue',
-    insertText: 'testValue: ',
-    kind: CompletionItemKind.Variable,
-  })
-
-  return completions
-})
-connection.onCompletionResolve((item: CompletionItem) => {
-  item.detail = item.data
-  item.documentation = {
-    kind: MarkupKind.Markdown,
-    value: '# wah \n\n - cool `test` \n ```thrd\na: 432\n```',
-  }
-
-  return item
-})
+connection.onCompletion(handleOnCompletion)
+connection.onCompletionResolve(handleOnCompletionResolve)
 
 connection.onCodeAction(handleOnCodeAction)
 connection.onHover(handleOnHover)

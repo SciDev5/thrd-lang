@@ -11,7 +11,7 @@ import { TypeResolutionIssue, lintingTypeCheckOrTypeFindingError, type TTypeSpec
 import { parse } from './parsing/parse'
 import { globalSettings, type THRDServerSettings } from './settings'
 import { positionIsInRange } from './util/range'
-import { Err, Ok, type Result } from './util/Result'
+import { Err, Ok, isOk, type Result, unwrapResult } from './util/Result'
 import { IMPOSSIBLE } from './util/THROW'
 
 const documents = new TextDocuments(TextDocument)
@@ -159,6 +159,10 @@ export class TDocument {
     return this.parsedResolved
   }
 
+  getText (): string {
+    return this.source.getText()
+  }
+
   get isTypespec (): boolean {
     return this.source.uri.endsWith('.thrdspec')
   }
@@ -175,7 +179,7 @@ export class TDocument {
     }
   }
 
-  private async getTypespec (): Promise<[string, Result<TTypeSpec, TypeResolutionIssue>]> {
+  async getTypespec (): Promise<[string, Result<TTypeSpec, TypeResolutionIssue>]> {
     if (this.isTypespec) {
       return ['', Ok(TYPESPEC_SPEC)]
     } else if (this.nameKey != null) {
@@ -183,6 +187,17 @@ export class TDocument {
       return [this.nameKey.type, this.workspace.typeIndex.map.get(this.nameKey.type) ?? Err(TypeResolutionIssue.CouldNotFind)]
     } else {
       return [(this.source.uri.match(/([\\/][^\\/]*?)$/) ?? IMPOSSIBLE())[1], Err(TypeResolutionIssue.ReferenceInvalid)]
+    }
+  }
+
+  getTypespecOrNullImmediate (): TTypeSpec | null {
+    if (this.isTypespec) {
+      return TYPESPEC_SPEC
+    } else if (this.nameKey != null) {
+      const typ = this.workspace.typeIndex.map.get(this.nameKey.type)
+      return typ != null && isOk(typ) ? unwrapResult(typ) : null
+    } else {
+      return null
     }
   }
 }
