@@ -161,6 +161,10 @@ function valueCompletion (valueType: TTypeSpec): CompletionItem[] {
           insertTextFormat: InsertTextFormat.Snippet,
         }
       })
+    case TTypeSpecType.Ref:
+      return valueCompletion(valueType.ref())
+    case TTypeSpecType.Missing:
+      return []
   }
 }
 function blockTypeSnippetText (blockType: BlockType): string {

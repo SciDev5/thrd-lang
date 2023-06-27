@@ -1,7 +1,6 @@
 import { CodeAction, CodeActionKind, TextDocuments, type Connection, type Position } from 'vscode-languageserver'
 import { TextDocument } from 'vscode-languageserver-textdocument'
 import { TWorkspace, type SourceFile } from './TWorkspace'
-import { TYPESPEC_SPEC } from './TWorkspaceTypeIndex'
 import { capabilities } from './capabilities'
 import { DiagnosticTracker } from './linting/DiagnosticTracker'
 import { whitespaceLint } from './linting/whitespaceLint'
@@ -181,10 +180,11 @@ export class TDocument {
 
   async getTypespec (): Promise<[string, Result<TTypeSpec, TypeResolutionIssue>]> {
     if (this.isTypespec) {
-      return ['', Ok(TYPESPEC_SPEC)]
+      await this.workspace.typeIndex.ready
+      return ['', Ok(this.workspace.typeIndex.TYPESPEC_SPEC)]
     } else if (this.nameKey != null) {
       await this.workspace.typeIndex.ready
-      return [this.nameKey.type, this.workspace.typeIndex.map.get(this.nameKey.type) ?? Err(TypeResolutionIssue.CouldNotFind)]
+      return [this.nameKey.type, this.workspace.typeIndex.resolve(this.nameKey.type)]
     } else {
       return [(this.source.uri.match(/([\\/][^\\/]*?)$/) ?? IMPOSSIBLE())[1], Err(TypeResolutionIssue.ReferenceInvalid)]
     }
@@ -192,10 +192,10 @@ export class TDocument {
 
   getTypespecOrNullImmediate (): TTypeSpec | null {
     if (this.isTypespec) {
-      return TYPESPEC_SPEC
+      return this.workspace.typeIndex.TYPESPEC_SPEC
     } else if (this.nameKey != null) {
-      const typ = this.workspace.typeIndex.map.get(this.nameKey.type)
-      return typ != null && isOk(typ) ? unwrapResult(typ) : null
+      const typ = this.workspace.typeIndex.resolve(this.nameKey.type)
+      return isOk(typ) ? unwrapResult(typ) : null
     } else {
       return null
     }

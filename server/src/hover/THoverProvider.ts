@@ -45,6 +45,14 @@ function displayTypeNameLines (type: TTypeSpec, maxDepth: number): DisplayLineGe
       }
       return [{ indent: 0, line: '#' + name }]
     }
+    case TTypeSpecType.Ref: {
+      const lines = displayTypeNameLines(type.ref(), maxDepth - 1)
+      lines[0].line = `@${type.refName} ` + lines[0].line
+      return lines
+    }
+    case TTypeSpecType.Missing: {
+      return [{ indent: 0, line: ' ~ missing ~ ' }]
+    }
   }
 }
 function displayBlockTypeNameLines (type: BlockTypeSpec, maxDepth: number): DisplayLineGenerating[] {

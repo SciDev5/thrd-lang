@@ -10,6 +10,8 @@ export enum TTypeSpecType {
   Primitive,
   Enum,
   Block,
+  Ref,
+  Missing,
 }
 
 export type TTypeSpec = {
@@ -20,6 +22,12 @@ export type TTypeSpec = {
 } & BlockTypeSpec) | {
   type: TTypeSpecType.Enum
   enumSpec: TTypeEnumSpec
+} | {
+  type: TTypeSpecType.Ref
+  refName: string
+  ref: () => TTypeSpec
+} | {
+  type: TTypeSpecType.Missing
 }
 
 export type TTypeEnumSpec = Record<string, BlockTypeSpec | null>
@@ -68,6 +76,10 @@ export function typeName (type: TTypeSpec): string {
       return blockTypeName(type)
     case TTypeSpecType.Primitive:
       return primitiveTypeName(type.which)
+    case TTypeSpecType.Ref:
+      return '@' + type.refName + ':' + typeName(type.ref())
+    case TTypeSpecType.Missing:
+      return ' ~ missing ~ '
   }
 }
 
@@ -215,6 +227,10 @@ export function lintingTypeCheckOrTypeFindingError (
 }
 
 export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diagnostics: DiagnosticTracker): boolean {
+  switch (type.type) {
+    case TTypeSpecType.Missing: return false
+    case TTypeSpecType.Ref: return lintingTypeCheck(data, type.ref(), diagnostics)
+  }
   switch (data.type) {
     case TDataType.Primitive:
       if (type.type === TTypeSpecType.Primitive) {
@@ -251,7 +267,7 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
         }
 
         switch (data.kind) {
-          case BlockType.Arr:{
+          case BlockType.Arr: {
             if (type.kind !== BlockType.Arr) IMPOSSIBLE()
             let allOk = true
             for (const elt of data.contents) {

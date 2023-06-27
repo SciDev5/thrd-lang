@@ -59,6 +59,12 @@ export function traceInsideBlock (data: BlockDataWithPosition, pos: Position): {
 }
 
 export function blockTrace (data: TDataWithPosition, type: TTypeSpec, pos: Position): { typeTraceFail: true } | { typeTraceFail: false, data: { d: BlockDataWithPosition, t: BlockTypeSpec } } | null {
+  if (type.type === TTypeSpecType.Ref) {
+    return blockTrace(data, type.ref(), pos)
+  }
+  if (type.type === TTypeSpecType.Missing) {
+    return { typeTraceFail: true }
+  }
   if (!positionIsInRange(pos, data.type === TDataType.Block ? blockRange(data.range, { includeBrackets: false }) : data.range)) {
     return null
   }

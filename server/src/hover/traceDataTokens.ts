@@ -20,6 +20,14 @@ export function traceExpectedType (hoverTraceKeys: HoverTraceKey[], topLevelType
       // illegal indexing into unit
       typeFailed = true
       break
+    } else {
+      if (expectedType.type === TTypeSpecType.Missing) {
+        typeFailed = true
+        break
+      }
+      if (expectedType.type === TTypeSpecType.Ref) {
+        expectedType = expectedType.ref()
+      }
     }
     if ('enumKey' in key) {
       if (expectedType.type !== TTypeSpecType.Enum || !(key.enumKey in expectedType.enumSpec)) {
