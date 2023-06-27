@@ -157,7 +157,7 @@ function keyCompletion (keyName: string, valueType: TTypeSpec): CompletionItem {
 }
 function recordKeyCompletion (valueType: TTypeSpec): CompletionItem {
   return {
-    label: '< abc ... >',
+    label: '< ... >: ' + (valueType.type === TTypeSpecType.Block ? blockTypeLabelText(valueType.kind) : ''),
     insertText: '$1: ' + (valueType.type === TTypeSpecType.Block ? blockTypeSnippetText(valueType.kind) : ''),
     insertTextFormat: InsertTextFormat.Snippet,
     kind: CompletionItemKind.Variable,

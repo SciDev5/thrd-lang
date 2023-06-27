@@ -65,18 +65,8 @@ export class TWorkspaceTypeIndex {
 
     const BLOCKTYPE_ENUM_SPEC = {
       dict: {
-        kind: BlockType.Arr,
-        contents: {
-          type: TTypeSpecType.Block,
-          kind: BlockType.Tuple,
-          contents: [
-            {
-              type: TTypeSpecType.Primitive,
-              which: SingleValueType.String,
-            },
-            _mainSpecPlaceholder_,
-          ],
-        },
+        kind: BlockTypeExt.DictRecord,
+        contents: _mainSpecPlaceholder_,
       },
       array: {
         kind: BlockType.Tuple,
@@ -116,30 +106,20 @@ export class TWorkspaceTypeIndex {
 
         enum: {
           // this should be array not tuple
-          kind: BlockType.Arr,
+          kind: BlockTypeExt.DictRecord,
           contents: {
-            type: TTypeSpecType.Block,
-            kind: BlockType.Tuple,
-            contents: [
-              {
-                type: TTypeSpecType.Primitive,
-                which: SingleValueType.String,
-              },
-              {
-                type: TTypeSpecType.Enum,
-                enumSpec: {
-                  ...BLOCKTYPE_ENUM_SPEC,
-                  unit: null,
-                },
-              },
-            ],
+            type: TTypeSpecType.Enum,
+            enumSpec: {
+              ...BLOCKTYPE_ENUM_SPEC,
+              unit: null,
+            },
           },
         },
         ...BLOCKTYPE_ENUM_SPEC,
       },
     } satisfies TTypeSpec
 
-    BLOCKTYPE_ENUM_SPEC.dict.contents.contents[1] = TYPESPEC_SPEC
+    BLOCKTYPE_ENUM_SPEC.dict.contents = TYPESPEC_SPEC
     BLOCKTYPE_ENUM_SPEC.array.contents[0] = TYPESPEC_SPEC
     BLOCKTYPE_ENUM_SPEC.tuple.contents = TYPESPEC_SPEC
     BLOCKTYPE_ENUM_SPEC.record.contents[0] = TYPESPEC_SPEC
@@ -179,7 +159,7 @@ function parseTTypeSpec (data: LoadedTypeObject, typeIndex: TWorkspaceTypeIndex)
       return {
         type: TTypeSpecType.Enum,
         enumSpec: Object.fromEntries(
-          data[1].map(([key, typeObject]) => [
+          Object.entries(data[1]).map(([key, typeObject]) => [
             key,
             typeObject[0] === 'unit' ? null : parseBlockTypeSpec(typeObject, typeIndex),
           ]),
@@ -204,7 +184,7 @@ function parseTTypeSpec (data: LoadedTypeObject, typeIndex: TWorkspaceTypeIndex)
 function parseBlockTypeSpec (data: LoadedBlockTypeObject, typeIndex: TWorkspaceTypeIndex): TTypeSpec & BlockTypeSpec {
   switch (data[0]) {
     case 'dict':
-      return { type: TTypeSpecType.Block, kind: BlockType.Dict, contents: Object.fromEntries(data[1].map(([key, typeObject]) => [key, parseTTypeSpec(typeObject, typeIndex)])) }
+      return { type: TTypeSpecType.Block, kind: BlockType.Dict, contents: Object.fromEntries(Object.entries(data[1]).map(([key, typeObject]) => [key, parseTTypeSpec(typeObject, typeIndex)])) }
     case 'array':
       return { type: TTypeSpecType.Block, kind: BlockType.Arr, contents: parseTTypeSpec(data[1][0], typeIndex) }
     case 'tuple':
@@ -216,7 +196,7 @@ function parseBlockTypeSpec (data: LoadedBlockTypeObject, typeIndex: TWorkspaceT
 
 type LoadedBlockTypeObject = [
   'dict',
-  Array<[ string, LoadedTypeObject ]>,
+  Record<string, LoadedTypeObject>,
 ] | [
   'array',
   [LoadedTypeObject],
@@ -234,6 +214,6 @@ type LoadedTypeObject = [
   'ref', [ string ],
 ] | [
   'enum',
-  Array<[ string, LoadedBlockTypeObject | [ 'unit' ]]>,
+  Record<string, LoadedBlockTypeObject | [ 'unit' ]>,
 
 ] | LoadedBlockTypeObject

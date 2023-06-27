@@ -6,7 +6,7 @@ import { TTypeSpecType, type BlockTypeSpec, type TTypeSpec, BlockTypeExt } from 
 import { traceDataTokens, traceExpectedType, unitType } from './traceDataTokens'
 import { isErr, unwrapResult } from '../util/Result'
 
-function displayTypeName (type: TTypeSpec, maxDepth: number = 6): string {
+function displayTypeName (type: TTypeSpec, maxDepth: number = 4): string {
   return displayTypeNameLines(type, maxDepth).map(({ indent, line }) => '    '.repeat(indent) + line).join('\n')
 }
 
