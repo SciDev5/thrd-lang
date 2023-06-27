@@ -3,9 +3,9 @@ import { type BlockDataWithPosition, TDataType, type TDataWithPosition, blockDat
 import { positionIsInRange } from '../util/range'
 import { BlockType } from '../parsing/TToken'
 import { IMPOSSIBLE } from '../util/THROW'
-import { type TTypeEnumSpec, type TTypeSpec, TTypeSpecType } from '../parsing/TTypeSpec'
+import { type TTypeEnumSpec, type TTypeSpec, TTypeSpecType, BlockTypeExt } from '../parsing/TTypeSpec'
 
-type HoverTraceKey = { kind: BlockType.Dict, key: string } | { kind: BlockType.Arr } | { kind: BlockType.Tuple, i: number } | { enumKey: string }
+type HoverTraceKey = { kind: BlockType.Dict | BlockTypeExt.DictRecord, key: string } | { kind: BlockType.Arr } | { kind: BlockType.Tuple, i: number } | { enumKey: string }
 type HoverTraceTarget = { propertyKey?: never } | { propertyKey: string, propertyKeyRange: Range }
 type HoverTraceResult = [TDataWithPosition[], HoverTraceKey[], HoverTraceTarget] | null
 
@@ -54,6 +54,9 @@ export function traceExpectedType (hoverTraceKeys: HoverTraceKey[], topLevelType
           break
         }
         expectedType = next
+      } else if (key.kind === BlockType.Dict && expectedType.kind === BlockTypeExt.DictRecord) {
+        key.kind = BlockTypeExt.DictRecord
+        expectedType = expectedType.contents
       } else if (key.kind === BlockType.Arr && expectedType.kind === BlockType.Arr) {
         expectedType = expectedType.contents
       } else if (key.kind === BlockType.Tuple && expectedType.kind === BlockType.Tuple) {

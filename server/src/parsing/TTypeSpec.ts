@@ -32,6 +32,9 @@ export type TTypeSpec = {
 
 export type TTypeEnumSpec = Record<string, BlockTypeSpec | null>
 
+export enum BlockTypeExt {
+  DictRecord = 99,
+}
 export type BlockTypeSpec = {
   kind: BlockType.Dict
   contents: Record<string, TTypeSpec>
@@ -41,6 +44,9 @@ export type BlockTypeSpec = {
 } | {
   kind: BlockType.Tuple
   contents: TTypeSpec[]
+} | {
+  kind: BlockTypeExt.DictRecord
+  contents: TTypeSpec
 }
 
 function primitiveTypeName (type: SingleValueType): string {
@@ -57,15 +63,17 @@ function blockTypeName (type: BlockTypeSpec): string {
     [BlockType.Arr]: (type) => '<array>',
     [BlockType.Dict]: (type) => '<dict>',
     [BlockType.Tuple]: (type) => '<tuple>',
-  } satisfies { [T in BlockType]: (v: BlockTypeSpec & { kind: T }) => string })[type.kind](type as any)
+    [BlockTypeExt.DictRecord]: (type) => '<dict/record>',
+  } satisfies { [T in BlockType | BlockTypeExt]: (v: BlockTypeSpec & { kind: T }) => string })[type.kind](type as any)
 }
 
-function blockTypeKindName (type: BlockType): string {
+function blockTypeKindName (type: BlockType | BlockTypeExt): string {
   return ({
     [BlockType.Arr]: '<array>',
     [BlockType.Dict]: '<dict>',
     [BlockType.Tuple]: '<tuple>',
-  } satisfies { [T in BlockType]: string })[type]
+    [BlockTypeExt.DictRecord]: '<dict/record>',
+  } satisfies { [T in BlockType | BlockTypeExt ]: string })[type]
 }
 
 export function typeName (type: TTypeSpec): string {
@@ -256,7 +264,7 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
       }
     case TDataType.Block:
       if (type.type === TTypeSpecType.Block) {
-        if (data.kind !== type.kind) {
+        if (data.kind !== type.kind && !(type.kind === BlockTypeExt.DictRecord && data.kind === BlockType.Dict)) {
           // Found wrong kind of block
           diagnostics.add(new TypeMismatchTypeDiagnostic(
             data.range,
@@ -266,9 +274,9 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
           return false
         }
 
-        switch (data.kind) {
+        switch (type.kind) {
           case BlockType.Arr: {
-            if (type.kind !== BlockType.Arr) IMPOSSIBLE()
+            if (data.kind !== BlockType.Arr) IMPOSSIBLE()
             let allOk = true
             for (const elt of data.contents) {
               const ok = lintingTypeCheck(elt, type.contents, diagnostics)
@@ -277,7 +285,7 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
             return allOk
           }
           case BlockType.Tuple: {
-            if (type.kind !== BlockType.Tuple) IMPOSSIBLE()
+            if (data.kind !== BlockType.Tuple) IMPOSSIBLE()
             const nExpected = type.contents.length
             const nData = data.contents.length
             let allOk = true
@@ -298,7 +306,7 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
             return allOk
           }
           case BlockType.Dict: {
-            if (type.kind !== BlockType.Dict) IMPOSSIBLE()
+            if (data.kind !== BlockType.Dict) IMPOSSIBLE()
             const keysExpected = new Set(Object.keys(type.contents))
             const keysData = new Set(Object.keys(data.contents))
             const keysDataLoose = new Set(Object.keys(data.keyRanges))
@@ -330,6 +338,15 @@ export function lintingTypeCheck (data: TDataWithPosition, type: TTypeSpec, diag
 
             for (const key of setAnd(keysExpected, keysData)) {
               const ok = lintingTypeCheck(data.contents[key], type.contents[key], diagnostics)
+              allOk &&= ok
+            }
+            return allOk
+          }
+          case BlockTypeExt.DictRecord: {
+            if (data.kind !== BlockType.Dict) IMPOSSIBLE()
+            let allOk = true
+            for (const [,elt] of Object.entries(data.contents)) {
+              const ok = lintingTypeCheck(elt, type.contents, diagnostics)
               allOk &&= ok
             }
             return allOk

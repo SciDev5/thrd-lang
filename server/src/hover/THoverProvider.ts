@@ -2,7 +2,7 @@ import { type Hover, type Position } from 'vscode-languageserver'
 import { DEBUG_CONSTANTS } from '../DEBUG_CONSTANTS'
 import { type TParsedDoc } from '../TDocument'
 import { BlockType, SingleValueType, TokenType } from '../parsing/TToken'
-import { TTypeSpecType, type BlockTypeSpec, type TTypeSpec } from '../parsing/TTypeSpec'
+import { TTypeSpecType, type BlockTypeSpec, type TTypeSpec, BlockTypeExt } from '../parsing/TTypeSpec'
 import { traceDataTokens, traceExpectedType, unitType } from './traceDataTokens'
 import { isErr, unwrapResult } from '../util/Result'
 
@@ -80,6 +80,10 @@ function displayBlockTypeNameLines (type: BlockTypeSpec, maxDepth: number): Disp
         inner.push(...displayTypeNameLines(ent, maxDepth - 1))
       }
       break
+    case BlockTypeExt.DictRecord:
+      brackets = ['#record { _:', '}']
+      inner = displayTypeNameLines(type.contents, maxDepth - 1)
+      break
   }
   inner.forEach(v => v.indent++)
   return joinIfShort([
@@ -152,6 +156,8 @@ export const THoverProvider = {
         value += `#${key.enumKey}`
       } else if (key.kind === BlockType.Dict) {
         value += '.' + key.key
+      } else if (key.kind === BlockTypeExt.DictRecord) {
+        value += '._'
       } else if (key.kind === BlockType.Arr) {
         value += '[]'
       } else if (key.kind === BlockType.Tuple) {

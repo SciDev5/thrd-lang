@@ -1,7 +1,7 @@
 import { type Position, type Range } from 'vscode-languageserver'
 import { type BlockDataWithPosition, TDataType, type TDataWithPosition } from '../parsing/TData'
 import { BlockType } from '../parsing/TToken'
-import { type BlockTypeSpec, type TTypeSpec, TTypeSpecType } from '../parsing/TTypeSpec'
+import { type BlockTypeSpec, type TTypeSpec, TTypeSpecType, BlockTypeExt } from '../parsing/TTypeSpec'
 import { contractRange, positionCompare, positionIsInRange } from '../util/range'
 
 export function traceInsideBlock (data: BlockDataWithPosition, pos: Position): { nValuesBefore: number, justPassedKey?: string, isInside: boolean } {
@@ -93,17 +93,18 @@ export function blockTrace (data: TDataWithPosition, type: TTypeSpec, pos: Posit
 }
 
 export function blockTraceSubBlock (data: BlockDataWithPosition, blockType: BlockTypeSpec, pos: Position): { typeTraceFail: true } | { typeTraceFail: false, data: { d: BlockDataWithPosition, t: BlockTypeSpec } } {
-  switch (data.kind) {
+  switch (blockType.kind) {
     case BlockType.Dict:
-      if (blockType.kind !== BlockType.Dict) {
+    case BlockTypeExt.DictRecord:
+      if (data.kind !== BlockType.Dict) {
         return { typeTraceFail: true }
       }
       return Object.entries(data.contents)
-        .map(([i, v]) => blockTrace(v, blockType.contents[i], pos))
+        .map(([i, v]) => blockTrace(v, blockType.kind === BlockTypeExt.DictRecord ? blockType.contents : blockType.contents[i], pos))
         .reduce((a, b) => a ?? b, null) ??
          { typeTraceFail: false, data: { d: data, t: blockType } }
     case BlockType.Tuple:
-      if (blockType.kind !== BlockType.Tuple) {
+      if (data.kind !== BlockType.Tuple) {
         return { typeTraceFail: true }
       }
 
@@ -112,7 +113,7 @@ export function blockTraceSubBlock (data: BlockDataWithPosition, blockType: Bloc
         .reduce((a, b) => a ?? b, null) ??
          { typeTraceFail: false, data: { d: data, t: blockType } }
     case BlockType.Arr:
-      if (blockType.kind !== BlockType.Arr) {
+      if (data.kind !== BlockType.Arr) {
         return { typeTraceFail: true }
       }
 

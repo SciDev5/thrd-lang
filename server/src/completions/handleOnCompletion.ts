@@ -3,7 +3,7 @@ import { TDocument } from '../TDocument'
 import { SourceFile } from '../TWorkspace'
 import { type BlockDataWithPosition } from '../parsing/TData'
 import { BlockType, SingleValueType } from '../parsing/TToken'
-import { TTypeSpecType, type BlockTypeSpec, type TTypeSpec } from '../parsing/TTypeSpec'
+import { TTypeSpecType, type BlockTypeSpec, type TTypeSpec, BlockTypeExt } from '../parsing/TTypeSpec'
 import { isErr, unwrapResult } from '../util/Result'
 import { IMPOSSIBLE } from '../util/THROW'
 import { setSubtract } from '../util/set'
@@ -98,9 +98,9 @@ export function handleOnCompletionResolve (item: CompletionItem): CompletionItem
 }
 
 function blockCompletion (data: BlockDataWithPosition, type: BlockTypeSpec, justPassedKey: string | undefined, nValuesBefore: number): CompletionItem[] {
-  switch (data.kind) {
+  switch (type.kind) {
     case BlockType.Dict:
-      if (type.kind !== BlockType.Dict) IMPOSSIBLE()
+      if (data.kind !== BlockType.Dict) IMPOSSIBLE()
       if (justPassedKey != null) {
         // expect value
         const expectedType = type.contents[justPassedKey]
@@ -117,11 +117,26 @@ function blockCompletion (data: BlockDataWithPosition, type: BlockTypeSpec, just
         }
         return completions
       }
+    case BlockTypeExt.DictRecord:
+      if (data.kind !== BlockType.Dict) IMPOSSIBLE()
+
+      if (justPassedKey != null) {
+        // expect value
+        const expectedType = type.contents
+        if (expectedType != null) {
+          return valueCompletion(expectedType)
+        }
+        return []
+      } else {
+        // expect key
+        return [recordKeyCompletion(type.contents)]
+      }
+
     case BlockType.Arr:
-      if (type.kind !== BlockType.Arr) IMPOSSIBLE()
+      if (data.kind !== BlockType.Arr) IMPOSSIBLE()
       return valueCompletion(type.contents)
     case BlockType.Tuple: {
-      if (type.kind !== BlockType.Tuple) IMPOSSIBLE()
+      if (data.kind !== BlockType.Tuple) IMPOSSIBLE()
       const expectedType = type.contents[nValuesBefore]
       if (expectedType != null) {
         return valueCompletion(expectedType)
@@ -136,6 +151,14 @@ function keyCompletion (keyName: string, valueType: TTypeSpec): CompletionItem {
   return {
     label: `${keyName}`,
     insertText: `${keyName}: ` + (valueType.type === TTypeSpecType.Block ? blockTypeSnippetText(valueType.kind) : ''),
+    insertTextFormat: InsertTextFormat.Snippet,
+    kind: CompletionItemKind.Variable,
+  }
+}
+function recordKeyCompletion (valueType: TTypeSpec): CompletionItem {
+  return {
+    label: '< abc ... >',
+    insertText: '$1: ' + (valueType.type === TTypeSpecType.Block ? blockTypeSnippetText(valueType.kind) : ''),
     insertTextFormat: InsertTextFormat.Snippet,
     kind: CompletionItemKind.Variable,
   }
@@ -167,15 +190,17 @@ function valueCompletion (valueType: TTypeSpec): CompletionItem[] {
       return []
   }
 }
-function blockTypeSnippetText (blockType: BlockType): string {
+function blockTypeSnippetText (blockType: BlockType | BlockTypeExt): string {
   switch (blockType) {
-    case BlockType.Dict: return '{$1}$0'
-    case BlockType.Arr: return '[$1]$0'
-    case BlockType.Tuple: return '($1)$0'
+    case BlockTypeExt.DictRecord:
+    case BlockType.Dict: return '{$0}'
+    case BlockType.Arr: return '[$0]'
+    case BlockType.Tuple: return '($0)'
   }
 }
-function blockTypeLabelText (blockType: BlockType): string {
+function blockTypeLabelText (blockType: BlockType | BlockTypeExt): string {
   switch (blockType) {
+    case BlockTypeExt.DictRecord:
     case BlockType.Dict: return '{ ... }'
     case BlockType.Arr: return '[ ... ]'
     case BlockType.Tuple: return '( ... )'
